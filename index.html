@@ -659,9 +659,15 @@ function initMap(lat,lng){
     // Wait a moment for road tiles to load before snapping dots
     setTimeout(()=>spawnDotsAround(lat,lng),1200);
     spawnLandmarkDots(lat,lng);
-    // Re-snap dots when map idles after movement (new road tiles may have loaded)
-    map.on('idle',()=>{
-      if(playerLat&&!spawnInProgress)spawnDotsAround(playerLat,playerLng);
+    // Re-snap dots once after first move (tiles fully loaded)
+    map.once('idle',()=>{
+      if(playerLat&&!spawnInProgress){
+        // Clear any grid dots and respawn on roads
+        Object.values(dotMarkers).forEach(d=>{if(!store.eatenIds[Object.keys(dotMarkers).find(k=>dotMarkers[k]===d)])d.marker.remove()});
+        dotMarkers={};
+        spawnDotsAround(playerLat,playerLng);
+        spawnLandmarkDots(playerLat,playerLng);
+      }
     });
     updateUI();
     updateLB('day');
@@ -820,40 +826,54 @@ async function spawnDotsAround(lat,lng){
 }
 
 async function spawnDotsOnRoads(lat,lng){
-  // Use Mapbox Isochrone API to get walkable area, then place dots on road network
-  // We query rendered features from the map itself — no extra API calls needed
   if(!map.isStyleLoaded())return spawnDotsGrid(lat,lng);
 
-  // Get all road/path features currently visible in the map
-  const features=map.queryRenderedFeatures(
-    undefined,
-    {layers:['road-primary','road-secondary-tertiary','road-street',
-             'road-minor','road-pedestrian','road-path',
-             'road-steps','road-sidewalk','road-pedestrian-case',
-             'bridge-pedestrian','bridge-path']}
+  // Get all layer IDs from the current style and find road-related ones
+  const allLayers=map.getStyle().layers.map(l=>l.id);
+  const roadLayers=allLayers.filter(id=>{
+    const l=id.toLowerCase();
+    return l.includes('road')||l.includes('street')||l.includes('path')||
+           l.includes('pedestrian')||l.includes('footway')||l.includes('walk')||
+           l.includes('sidewalk')||l.includes('cycleway')||l.includes('bridge');
+  });
+
+  if(roadLayers.length===0)return spawnDotsGrid(lat,lng);
+
+  // Query rendered features on those layers
+  let features=[];
+  try{
+    features=map.queryRenderedFeatures(undefined,{layers:roadLayers});
+  }catch(e){
+    // Some layers may not support queryRenderedFeatures — try one by one
+    for(const layer of roadLayers){
+      try{
+        const f=map.queryRenderedFeatures(undefined,{layers:[layer]});
+        features=features.concat(f);
+      }catch(e2){}
+    }
+  }
+
+  // Filter to only LineString geometries (roads are lines)
+  const lineFeatures=features.filter(f=>
+    f.geometry&&(f.geometry.type==='LineString'||f.geometry.type==='MultiLineString')
   );
 
-  if(!features||features.length<5){
-    return spawnDotsGrid(lat,lng);
-  }
+  if(lineFeatures.length<3)return spawnDotsGrid(lat,lng);
 
   const placed=new Set();
   let count=0;
 
-  features.forEach(feature=>{
-    if(count>300)return;
+  lineFeatures.forEach(feature=>{
+    if(count>400)return;
     const geom=feature.geometry;
-    if(!geom)return;
-
-    const lines=geom.type==='LineString'?[geom.coordinates]:
-                 geom.type==='MultiLineString'?geom.coordinates:[];
+    const lines=geom.type==='LineString'?[geom.coordinates]:geom.coordinates;
 
     lines.forEach(coords=>{
-      // Walk along each line segment placing dots every DOT_SPACING_M metres
       for(let i=0;i<coords.length-1;i++){
-        const [lng1,lat1]=coords[i];
-        const [lng2,lat2]=coords[i+1];
+        const[lng1,lat1]=coords[i];
+        const[lng2,lat2]=coords[i+1];
         const segLen=haversineM(lat1,lng1,lat2,lng2);
+        if(segLen>500)continue; // skip unreasonably long segments
         const steps=Math.max(1,Math.floor(segLen/DOT_SPACING_M));
         for(let s=0;s<=steps;s++){
           const t=s/steps;
@@ -861,8 +881,7 @@ async function spawnDotsOnRoads(lat,lng){
           const dLng=lng1+(lng2-lng1)*t;
           const dist=haversineM(lat,lng,dLat,dLng);
           if(dist>SPAWN_RADIUS_M)continue;
-          // Deduplicate by snapping to grid key
-          const key=`${Math.round(dLat*4000)}_${Math.round(dLng*4000)}`;
+          const key=`${Math.round(dLat*5000)}_${Math.round(dLng*5000)}`;
           if(placed.has(key))continue;
           placed.add(key);
           const id=`dot_${dotIdCounter++}`;
@@ -878,8 +897,7 @@ async function spawnDotsOnRoads(lat,lng){
     });
   });
 
-  // If road query returned very few dots, supplement with grid
-  if(count<20)spawnDotsGrid(lat,lng);
+  if(count<15)spawnDotsGrid(lat,lng);
 }
 
 function spawnDotsGrid(lat,lng){

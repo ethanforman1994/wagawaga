@@ -536,15 +536,15 @@ const MAPBOX_TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNW
 const COLLECT_RADIUS_M  = 18;
 const SPAWN_RADIUS_M    = 600;
 const DOT_SPACING_M     = 22;
-const GOLDEN_CHANCE     = 0.035;
-const BONUS_CHANCE      = 0.07;
-const LANDMARK_CHANCE   = 0.012;
+const GOLDEN_CHANCE     = 0.06;   // ~6% of dots are golden (10pts)
+// Simplified to 2 types for beta: regular (1pt) and golden (10pt)
+// Landmark dots remain as special teal (variable pts)
 
 /* ══════════════════════════════════════════════
    STORAGE
 ══════════════════════════════════════════════ */
 const TODAY = () => new Date().toISOString().split('T')[0];
-const SK = 'wagawaga_v2';
+const SK = 'wagawaga_v3'; // v3: coord-based dot IDs, fresh slate
 
 function loadStore(){
   try{
@@ -632,7 +632,22 @@ let playerLat=null, playerLng=null;
 let dotMarkers={}, friendMarkers=[], ghostMarkers=[];
 let tracking=false, watchId=null;
 let ghostTrailOn=false;
-let dotIdCounter=0;
+let dotIdCounter=0; // fallback counter only
+
+// Stable dot ID from GPS coordinates — same spot always same ID
+function dotIdFromCoords(lat, lng){
+  const gridLat = Math.round(lat * 4000); // ~25m precision grid
+  const gridLng = Math.round(lng * 4000);
+  return `dot_${gridLat}_${gridLng}`;
+} // fallback counter only
+
+// Generate a stable ID from GPS coordinates
+// Same location always gets the same ID — prevents re-eaten dots reappearing
+function dotIdFromCoords(lat, lng){
+  const gridLat = Math.round(lat * 4000); // ~25m grid
+  const gridLng = Math.round(lng * 4000);
+  return `dot_${gridLat}_${gridLng}`;
+}
 
 /* NYC Landmarks for special teal dots */
 const NYC_LANDMARKS=[
@@ -656,19 +671,16 @@ function initMap(lat,lng){
   map.on('load',()=>{
     spawnPlayerMarker(lat,lng);
     spawnFriendMarkers(lat,lng);
-    // Wait a moment for road tiles to load before snapping dots
-    setTimeout(()=>spawnDotsAround(lat,lng),1200);
     spawnLandmarkDots(lat,lng);
-    // Re-snap dots once after first move (tiles fully loaded)
-    map.once('idle',()=>{
-      if(playerLat&&!spawnInProgress){
-        // Clear any grid dots and respawn on roads
-        Object.values(dotMarkers).forEach(d=>{if(!store.eatenIds[Object.keys(dotMarkers).find(k=>dotMarkers[k]===d)])d.marker.remove()});
-        dotMarkers={};
-        spawnDotsAround(playerLat,playerLng);
-        spawnLandmarkDots(playerLat,playerLng);
-      }
-    });
+    // Wait for tiles then spawn road-snapped dots
+    setTimeout(()=>{
+      spawnDotsAround(lat,lng);
+      // After dots spawn, restore today's trail on the map
+      setTimeout(()=>{
+        restoreTodayTrail();
+        restoreEatenDots();
+      },800);
+    },1400);
     updateUI();
     updateLB('day');
     updateTerritories();
@@ -693,6 +705,63 @@ function movePlayer(lat,lng){
   if(!movePlayer._geo||Date.now()-movePlayer._geo>10000){
     movePlayer._geo=Date.now();
     reverseGeocode(lat,lng);
+  }
+}
+
+/* ── Restore today's session on map reload ── */
+function restoreEatenDots(){
+  // Mark any already-eaten dots as visually eaten
+  Object.entries(dotMarkers).forEach(([id,d])=>{
+    if(store.eatenIds[id]){
+      d.el.className='dot-marker eaten';
+    }
+  });
+}
+
+function restoreTodayTrail(){
+  // Draw a persistent trail of today's collected dot positions
+  if(!store.collectedToday||store.collectedToday.length<2)return;
+  // Remove any existing trail layer
+  if(map.getLayer('today-trail'))map.removeLayer('today-trail');
+  if(map.getSource('today-trail'))map.removeSource('today-trail');
+
+  const coords=store.collectedToday
+    .slice().reverse() // oldest first
+    .map(c=>[c.lng,c.lat]);
+
+  if(coords.length<2)return;
+
+  try{
+    map.addSource('today-trail',{
+      type:'geojson',
+      data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}
+    });
+    map.addLayer({
+      id:'today-trail',
+      type:'line',
+      source:'today-trail',
+      layout:{'line-join':'round','line-cap':'round'},
+      paint:{
+        'line-color':'#F0B429',
+        'line-width':3,
+        'line-opacity':0.4,
+        'line-dasharray':[2,4]
+      }
+    });
+  }catch(e){}
+}
+
+function updateTrailSource(){
+  if(!map||!map.getSource('today-trail'))return;
+  const coords=store.collectedToday
+    .slice().reverse()
+    .map(c=>[c.lng,c.lat]);
+  if(coords.length>=2){
+    try{
+      map.getSource('today-trail').setData({
+        type:'Feature',geometry:{type:'LineString',coordinates:coords}
+      });
+    }catch(e){}
   }
 }
 
@@ -881,15 +950,12 @@ async function spawnDotsOnRoads(lat,lng){
           const dLng=lng1+(lng2-lng1)*t;
           const dist=haversineM(lat,lng,dLat,dLng);
           if(dist>SPAWN_RADIUS_M)continue;
-          const key=`${Math.round(dLat*5000)}_${Math.round(dLng*5000)}`;
-          if(placed.has(key))continue;
-          placed.add(key);
-          const id=`dot_${dotIdCounter++}`;
-          if(store.eatenIds[id]||dotMarkers[id])continue;
+          const id=dotIdFromCoords(dLat,dLng); // stable coord-based ID
+          if(placed.has(id)||store.eatenIds[id]||dotMarkers[id])continue;
+          placed.add(id);
           const golden=Math.random()<GOLDEN_CHANCE;
-          const bonus=!golden&&Math.random()<BONUS_CHANCE;
-          const type=golden?'golden':bonus?'bonus':'regular';
-          const pts=golden?25:bonus?5:1;
+          const type=golden?'golden':'regular';
+          const pts=golden?10:1; // simplified: golden=10, regular=1
           placeDot(id,dLat,dLng,type,pts);
           count++;
         }
@@ -901,21 +967,17 @@ async function spawnDotsOnRoads(lat,lng){
 }
 
 function spawnDotsGrid(lat,lng){
-  // Fallback: grid placement (original method)
   const steps=Math.ceil(SPAWN_RADIUS_M/DOT_SPACING_M);
   for(let dx=-steps;dx<=steps;dx++){
     for(let dy=-steps;dy<=steps;dy++){
       const dxM=dx*DOT_SPACING_M,dyM=dy*DOT_SPACING_M;
       if(Math.sqrt(dxM*dxM+dyM*dyM)>SPAWN_RADIUS_M)continue;
-      const jx=(Math.random()-.5)*DOT_SPACING_M*.6;
-      const jy=(Math.random()-.5)*DOT_SPACING_M*.6;
-      const pos=offset(lat,lng,dyM+jy,dxM+jx);
-      const id=`dot_${dotIdCounter++}`;
+      const pos=offset(lat,lng,dyM,dxM); // no jitter — stable coords
+      const id=dotIdFromCoords(pos.lat,pos.lng); // stable coord-based ID
       if(store.eatenIds[id]||dotMarkers[id])continue;
       const golden=Math.random()<GOLDEN_CHANCE;
-      const bonus=!golden&&Math.random()<BONUS_CHANCE;
-      const type=golden?'golden':bonus?'bonus':'regular';
-      const pts=golden?25:bonus?5:1;
+      const type=golden?'golden':'regular';
+      const pts=golden?10:1; // simplified: golden=10, regular=1
       placeDot(id,pos.lat,pos.lng,type,pts);
     }
   }
@@ -966,10 +1028,10 @@ function collectDot(id,lat,lng,type,pts,label,tapped){
   const d=dotMarkers[id];if(d)d.el.className='dot-marker eaten';
   const sp=lngLatToScreen(lng,lat);
   if(sp){spawnBurst(sp.x,sp.y,type==='golden'?'#FFD166':type==='landmark'?'#0EB8A0':'#F0B429');spawnScorePop(sp.x,sp.y,pts,type);}
-  if(type==='golden')showToast(ICONS.star,`Golden dot — +${pts} pts!`);
+  if(type==='golden')showToast(ICONS.star,`Golden dot — +${pts} pts! ⭐`);
   else if(type==='landmark')showToast(ICONS.teal,`${label||'Landmark'} — +${pts} pts!`);
   updateUI();updateChallenges();
-  // Competitive nudges
+  updateTrailSource(); // keep trail updated live
   maybeNudge();
 }
 
@@ -1030,10 +1092,15 @@ function startWatch(){
       const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
       setGPS('active',`±${Math.round(acc)}m`);
       movePlayer(lat,lng);
+
+      // Spawn new dots whenever player moves 150m from last spawn point
+      // This ensures dots always appear ahead of the player
       if(!startWatch._last)startWatch._last={lat,lng};
-      if(haversineM(lat,lng,startWatch._last.lat,startWatch._last.lng)>DOT_SPACING_M*8){
-        spawnDotsAround(lat,lng);spawnLandmarkDots(lat,lng);
+      const movedM=haversineM(lat,lng,startWatch._last.lat,startWatch._last.lng);
+      if(movedM>150){
         startWatch._last={lat,lng};
+        spawnDotsAround(lat,lng);
+        spawnLandmarkDots(lat,lng);
       }
     },
     _=>setGPS('error','GPS lost'),

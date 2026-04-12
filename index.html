@@ -326,16 +326,62 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 .perm-note{font-size:11px;color:var(--text3);line-height:1.5;max-width:260px}
 
 /* ── MARKERS ── */
-.dot-marker{width:12px;height:12px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold-glow);cursor:pointer;border:1.5px solid rgba(255,255,255,0.2)}
-.dot-marker.bonus{width:18px;height:18px;background:transparent;border:2px solid var(--gold);box-shadow:0 0 12px var(--gold-glow);position:relative}
-.dot-marker.bonus::after{content:'';position:absolute;width:7px;height:7px;border-radius:50%;background:var(--gold);top:50%;left:50%;transform:translate(-50%,-50%)}
-.dot-marker.golden{width:20px;height:20px;background:transparent;border:2.5px solid var(--gold-light);box-shadow:0 0 16px rgba(255,209,102,0.7);position:relative;animation:golden-pulse 2s ease-in-out infinite}
-.dot-marker.golden::after{content:'';position:absolute;width:8px;height:8px;border-radius:50%;background:var(--gold-light);top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 8px rgba(255,209,102,0.8)}
-@keyframes golden-pulse{0%,100%{box-shadow:0 0 16px rgba(255,209,102,0.7)}50%{box-shadow:0 0 28px rgba(255,209,102,0.9)}}
-.dot-marker.landmark{width:24px;height:24px;background:transparent;border:2.5px solid var(--teal);box-shadow:0 0 18px var(--teal-glow,rgba(14,184,160,0.5));position:relative;animation:landmark-pulse 2.5s ease-in-out infinite}
-.dot-marker.landmark::after{content:'';position:absolute;width:9px;height:9px;border-radius:50%;background:var(--teal);top:50%;left:50%;transform:translate(-50%,-50%)}
-@keyframes landmark-pulse{0%,100%{box-shadow:0 0 18px rgba(14,184,160,0.5)}50%{box-shadow:0 0 32px rgba(14,184,160,0.8)}}
-.dot-marker.eaten{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.08);box-shadow:none;animation:none}
+/* ── Regular dot: teal ── */
+.dot-marker{
+  width:11px;height:11px;border-radius:50%;
+  background:var(--teal);
+  box-shadow:0 0 7px rgba(14,184,160,0.55);
+  cursor:pointer;
+  border:1.5px solid rgba(255,255,255,0.15);
+}
+
+/* ── Golden dot: gold with pulse ── */
+.dot-marker.golden{
+  width:18px;height:18px;
+  background:var(--gold);
+  border:2px solid var(--gold-light);
+  box-shadow:0 0 14px rgba(240,180,41,0.75);
+  position:relative;
+  animation:golden-pulse 1.8s ease-in-out infinite;
+}
+.dot-marker.golden::after{
+  content:'';position:absolute;
+  width:7px;height:7px;border-radius:50%;
+  background:#fff;opacity:0.5;
+  top:50%;left:50%;transform:translate(-50%,-50%);
+}
+@keyframes golden-pulse{
+  0%,100%{box-shadow:0 0 14px rgba(240,180,41,0.75)}
+  50%{box-shadow:0 0 26px rgba(240,180,41,1),0 0 8px rgba(255,255,255,0.3)}
+}
+
+/* ── Landmark dot: white fill + teal outer ring ── */
+.dot-marker.landmark{
+  width:22px;height:22px;
+  background:#fff;
+  border:3px solid var(--teal);
+  box-shadow:0 0 0 4px rgba(14,184,160,0.2),0 0 18px rgba(14,184,160,0.4);
+  position:relative;
+  animation:landmark-pulse 2.5s ease-in-out infinite;
+}
+.dot-marker.landmark::after{
+  content:'';position:absolute;
+  width:8px;height:8px;border-radius:50%;
+  background:var(--teal);
+  top:50%;left:50%;transform:translate(-50%,-50%);
+}
+@keyframes landmark-pulse{
+  0%,100%{box-shadow:0 0 0 4px rgba(14,184,160,0.2),0 0 18px rgba(14,184,160,0.4)}
+  50%{box-shadow:0 0 0 7px rgba(14,184,160,0.12),0 0 28px rgba(14,184,160,0.6)}
+}
+
+/* ── Eaten dot: faint ghost ring ── */
+.dot-marker.eaten{
+  width:11px;height:11px;
+  background:transparent;
+  border:1px solid rgba(255,255,255,0.08);
+  box-shadow:none;animation:none;
+}
 
 .player-marker-el{width:40px;height:40px;display:flex;align-items:center;justify-content:center;position:relative}
 .player-ring{position:absolute;width:40px;height:40px;border-radius:50%;background:rgba(240,180,41,0.1);animation:player-pulse 2s infinite}
@@ -347,6 +393,15 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 .friend-label{background:rgba(11,14,20,0.85);border-radius:6px;padding:2px 6px;font-size:9px;font-weight:600;color:rgba(238,240,246,0.8);white-space:nowrap}
 
 .ghost-trail-el{width:10px;height:10px;border-radius:50%;opacity:.35;pointer-events:none}
+
+/* neighbourhood entry toast accent */
+.neighbourhood-pill{
+  display:inline-block;
+  background:var(--teal-dim);border:1px solid var(--teal-border);
+  border-radius:20px;padding:2px 8px;
+  font-size:10px;font-weight:700;color:var(--teal-light);
+  margin-left:6px;vertical-align:middle;
+}
 </style>
 </head>
 <body>
@@ -441,8 +496,31 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
       <div class="fab" onclick="centerOnPlayer()">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
       </div>
-      <div class="fab" onclick="toggleGhostTrail()">
+      <div class="fab" id="trailFab" onclick="toggleGhostTrail()" style="position:relative">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" id="ghostIcon"><path d="M17 20H5a2 2 0 0 1-2-2V9a9 9 0 0 1 18 0v9a2 2 0 0 1-2 2z"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/></svg>
+        <div id="trailDot" style="
+          position:absolute;top:8px;right:8px;
+          width:7px;height:7px;border-radius:50%;
+          background:var(--text3);
+          border:1.5px solid rgba(255,255,255,0.15);
+          transition:background .2s;
+        "></div>
+      </div>
+      <!-- Trail tooltip — shown briefly on tap -->
+      <div id="trailTooltip" style="
+        position:absolute;right:54px;bottom:0;
+        background:rgba(11,14,20,0.94);
+        backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+        border:1px solid var(--border2);border-radius:10px;
+        padding:7px 11px;white-space:nowrap;
+        font-size:11px;font-weight:600;color:var(--text);
+        box-shadow:0 4px 16px rgba(0,0,0,0.4);
+        opacity:0;pointer-events:none;
+        transition:opacity .2s;
+        display:flex;flex-direction:column;gap:2px;
+      ">
+        <span id="trailTooltipTitle" style="color:var(--teal)">Trail: OFF</span>
+        <span style="font-size:9px;font-weight:400;color:var(--text2)">Shows your walking path</span>
       </div>
     </div>
 
@@ -672,14 +750,11 @@ function initMap(lat,lng){
     spawnPlayerMarker(lat,lng);
     spawnFriendMarkers(lat,lng);
     spawnLandmarkDots(lat,lng);
+    addNeighbourhoodLayers();
     // Wait for tiles then spawn road-snapped dots
     setTimeout(()=>{
       spawnDotsAround(lat,lng);
-      // After dots spawn, restore today's trail on the map
-      setTimeout(()=>{
-        restoreTodayTrail();
-        restoreEatenDots();
-      },800);
+      setTimeout(()=>restoreEatenDots(),800);
     },1400);
     updateUI();
     updateLB('day');
@@ -702,9 +777,11 @@ function movePlayer(lat,lng){
   checkCollections(lat,lng);
   updateNearby(lat,lng);
   if(ghostTrailOn)addGhostTrailPoint(lat,lng);
-  if(!movePlayer._geo||Date.now()-movePlayer._geo>10000){
+  // Check neighbourhood every 8 seconds
+  if(!movePlayer._geo||Date.now()-movePlayer._geo>8000){
     movePlayer._geo=Date.now();
     reverseGeocode(lat,lng);
+    checkNeighbourhood(lat,lng);
   }
 }
 
@@ -718,51 +795,114 @@ function restoreEatenDots(){
   });
 }
 
-function restoreTodayTrail(){
-  // Draw a persistent trail of today's collected dot positions
-  if(!store.collectedToday||store.collectedToday.length<2)return;
-  // Remove any existing trail layer
-  if(map.getLayer('today-trail'))map.removeLayer('today-trail');
-  if(map.getSource('today-trail'))map.removeSource('today-trail');
+function restoreTodayTrail(){ /* trail removed */ }
+function updateTrailSource(){ /* trail removed */ }
 
-  const coords=store.collectedToday
-    .slice().reverse() // oldest first
-    .map(c=>[c.lng,c.lat]);
+/* ── Neighbourhood overlays + entry detection ── */
+let currentNeighbourhood = null;
 
-  if(coords.length<2)return;
-
+function addNeighbourhoodLayers(){
+  if(!map) return;
   try{
-    map.addSource('today-trail',{
-      type:'geojson',
-      data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}
-    });
+    // Neighbourhood fill — very subtle tint
     map.addLayer({
-      id:'today-trail',
-      type:'line',
-      source:'today-trail',
-      layout:{'line-join':'round','line-cap':'round'},
-      paint:{
-        'line-color':'#F0B429',
-        'line-width':3,
-        'line-opacity':0.4,
-        'line-dasharray':[2,4]
+      id: 'neighbourhood-fill',
+      type: 'fill',
+      source: 'composite',
+      'source-layer': 'place_label',
+      filter: ['==', ['get', 'class'], 'neighbourhood'],
+      paint: {
+        'fill-color': [
+          'interpolate', ['linear'],
+          ['id'],
+          0,   'rgba(14,184,160,0.04)',
+          100, 'rgba(240,180,41,0.04)',
+          200, 'rgba(100,120,200,0.04)',
+        ],
+        'fill-opacity': 0.6,
       }
-    });
-  }catch(e){}
+    }, 'road-label'); // insert below road labels
+
+    // Neighbourhood border — clean dashed line
+    map.addLayer({
+      id: 'neighbourhood-border',
+      type: 'line',
+      source: 'composite',
+      'source-layer': 'place_label',
+      filter: ['==', ['get', 'class'], 'neighbourhood'],
+      paint: {
+        'line-color': 'rgba(255,255,255,0.1)',
+        'line-width': 1,
+        'line-dasharray': [3, 5],
+      }
+    }, 'road-label');
+
+  } catch(e){
+    // place_label source-layer didn't work — try admin boundaries instead
+    try{
+      addNeighbourhoodFromAdmin();
+    } catch(e2){}
+  }
 }
 
-function updateTrailSource(){
-  if(!map||!map.getSource('today-trail'))return;
-  const coords=store.collectedToday
-    .slice().reverse()
-    .map(c=>[c.lng,c.lat]);
-  if(coords.length>=2){
-    try{
-      map.getSource('today-trail').setData({
-        type:'Feature',geometry:{type:'LineString',coordinates:coords}
-      });
-    }catch(e){}
-  }
+function addNeighbourhoodFromAdmin(){
+  // Fallback: use Mapbox admin boundaries layer
+  map.addLayer({
+    id: 'neighbourhood-border',
+    type: 'line',
+    source: 'composite',
+    'source-layer': 'admin',
+    filter: ['all',
+      ['==', ['get', 'admin_level'], 6],
+      ['==', ['get', 'disputed'], 'false'],
+    ],
+    paint: {
+      'line-color': 'rgba(255,255,255,0.1)',
+      'line-width': 1,
+      'line-dasharray': [3, 5],
+    }
+  });
+}
+
+function checkNeighbourhood(lat, lng){
+  if(!map || !map.isStyleLoaded()) return;
+  try{
+    // Query neighbourhood label at player position
+    const point = map.project([lng, lat]);
+    const features = map.queryRenderedFeatures(
+      [point.x, point.y],
+      { layers: ['neighbourhood-fill', 'place-neighbourhood-label',
+                 'place-neighborhood-label', 'settlement-subdivision-label'] }
+    );
+
+    let name = null;
+    if(features && features.length > 0){
+      // Try various property names Mapbox uses
+      const f = features[0];
+      name = f.properties.name || f.properties.name_en || f.properties.label || null;
+    }
+
+    // Also try a broader search if point query found nothing
+    if(!name){
+      const broader = map.queryRenderedFeatures(
+        [[point.x-30, point.y-30],[point.x+30, point.y+30]],
+        { layers: ['place-neighbourhood-label','place-neighborhood-label',
+                   'settlement-subdivision-label','place-label'] }
+      );
+      const nbFeature = broader.find(f =>
+        f.properties.class === 'neighbourhood' ||
+        f.properties.type === 'neighbourhood' ||
+        f.properties.symbolrank <= 14
+      );
+      if(nbFeature) name = nbFeature.properties.name || nbFeature.properties.name_en;
+    }
+
+    if(name && name !== currentNeighbourhood){
+      currentNeighbourhood = name;
+      document.getElementById('locLabel').textContent = name;
+      showToast(ICONS.map, `Entering ${name}`);
+    }
+  } catch(e){}
 }
 
 /* ── Live simulated beta users ──
@@ -856,15 +996,32 @@ function clearGhostTrail(){
 }
 function toggleGhostTrail(){
   ghostTrailOn=!ghostTrailOn;
-  const icon=document.getElementById('ghostIcon');
+  const icon   = document.getElementById('ghostIcon');
+  const dot    = document.getElementById('trailDot');
+  const tip    = document.getElementById('trailTooltip');
+  const tipTtl = document.getElementById('trailTooltipTitle');
+
   if(ghostTrailOn){
-    icon.style.stroke='var(--gold)';
-    showToast(ICONS.walk,'Ghost trail ON — your path is now visible');
+    // ON state — gold icon, teal indicator dot
+    icon.style.stroke = 'var(--gold)';
+    dot.style.background = 'var(--teal)';
+    dot.style.boxShadow = '0 0 6px var(--teal)';
+    tipTtl.textContent = 'Trail: ON';
+    tipTtl.style.color = 'var(--teal)';
   } else {
-    icon.style.stroke='';
+    // OFF state — default icon, dim indicator dot
+    icon.style.stroke = '';
+    dot.style.background = 'var(--text3)';
+    dot.style.boxShadow = 'none';
     clearGhostTrail();
-    showToast(ICONS.warn,'Ghost trail OFF');
+    tipTtl.textContent = 'Trail: OFF';
+    tipTtl.style.color = 'var(--text2)';
   }
+
+  // Flash tooltip briefly so user knows what the button does
+  tip.style.opacity = '1';
+  clearTimeout(toggleGhostTrail._t);
+  toggleGhostTrail._t = setTimeout(()=>tip.style.opacity='0', 2200);
 }
 
 /* ── Dots ── */
@@ -1027,11 +1184,10 @@ function collectDot(id,lat,lng,type,pts,label,tapped){
   save();
   const d=dotMarkers[id];if(d)d.el.className='dot-marker eaten';
   const sp=lngLatToScreen(lng,lat);
-  if(sp){spawnBurst(sp.x,sp.y,type==='golden'?'#FFD166':type==='landmark'?'#0EB8A0':'#F0B429');spawnScorePop(sp.x,sp.y,pts,type);}
+  if(sp){spawnBurst(sp.x,sp.y,type==='golden'?'#F0B429':type==='landmark'?'#fff':'#0EB8A0');spawnScorePop(sp.x,sp.y,pts,type);}
   if(type==='golden')showToast(ICONS.star,`Golden dot — +${pts} pts! ⭐`);
   else if(type==='landmark')showToast(ICONS.teal,`${label||'Landmark'} — +${pts} pts!`);
   updateUI();updateChallenges();
-  updateTrailSource(); // keep trail updated live
   maybeNudge();
 }
 
@@ -1333,7 +1489,7 @@ function spawnBurst(x,y,color='#F0B429'){
 function spawnScorePop(x,y,pts,type){
   const bc=document.getElementById('burstContainer');
   const pop=document.createElement('div');pop.className='score-pop';
-  const c=type==='golden'?'#FFD166':type==='landmark'||type==='bonus'?'#0EB8A0':'#F0B429';
+  const c=type==='golden'?'#F0B429':type==='landmark'?'#fff':'#0EB8A0';
   pop.style.cssText=`left:${x+8}px;top:${y-10}px;color:${c};font-size:${pts>=10?17:pts>=5?15:13}px;text-shadow:0 2px 12px ${c}66`;
   pop.textContent=`+${pts}`;bc.appendChild(pop);setTimeout(()=>pop.remove(),800);
 }

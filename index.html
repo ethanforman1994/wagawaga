@@ -656,8 +656,13 @@ function initMap(lat,lng){
   map.on('load',()=>{
     spawnPlayerMarker(lat,lng);
     spawnFriendMarkers(lat,lng);
-    spawnDotsAround(lat,lng);
+    // Wait a moment for road tiles to load before snapping dots
+    setTimeout(()=>spawnDotsAround(lat,lng),1200);
     spawnLandmarkDots(lat,lng);
+    // Re-snap dots when map idles after movement (new road tiles may have loaded)
+    map.on('idle',()=>{
+      if(playerLat&&!spawnInProgress)spawnDotsAround(playerLat,playerLng);
+    });
     updateUI();
     updateLB('day');
     updateTerritories();
@@ -685,18 +690,71 @@ function movePlayer(lat,lng){
   }
 }
 
-/* ── Simulated friend markers ── */
+/* ── Live simulated beta users ──
+   Each user walks a semi-realistic path near the player,
+   updating every few seconds. Their dots score count increments
+   as they "collect" along their route. */
+const BETA_USERS=[
+  {name:'Jordan K.',initials:'JK',color:'#3A4A6B',score:412,speed:0.000035,dir:Math.random()*Math.PI*2},
+  {name:'Priya M.',initials:'PM',color:'#2C3E50',score:388,speed:0.000028,dir:Math.random()*Math.PI*2},
+  {name:'Sam W.',initials:'SW',color:'#0EB8A0',score:189,speed:0.000042,dir:Math.random()*Math.PI*2},
+  {name:'Devon R.',initials:'DR',color:'#253040',score:210,speed:0.000031,dir:Math.random()*Math.PI*2},
+];
+
 function spawnFriendMarkers(lat,lng){
-  const offsets=[{dx:0.003,dy:0.002,name:'Jordan',initials:'JK',color:'#3A4A6B'},
-    {dx:-0.004,dy:-0.003,name:'Priya',initials:'PM',color:'#2C3E50'},
-    {dx:0.002,dy:-0.004,name:'Sam',initials:'SW',color:'#0EB8A0'}];
-  offsets.forEach(o=>{
+  const spread=0.006;
+  BETA_USERS.forEach((u,i)=>{
+    const angle=(i/BETA_USERS.length)*Math.PI*2;
+    const dist=0.002+Math.random()*spread;
+    u.lat=lat+Math.sin(angle)*dist;
+    u.lng=lng+Math.cos(angle)*dist;
+    u.baseLat=lat;u.baseLng=lng;
+
     const el=document.createElement('div');
     el.className='friend-marker-el';
-    el.innerHTML=`<div class="friend-pin" style="background:${o.color}">${o.initials}</div><div class="friend-label">${o.name}</div>`;
-    const m=new mapboxgl.Marker({element:el,anchor:'bottom'})
-      .setLngLat([lng+o.dx,lat+o.dy]).addTo(map);
-    friendMarkers.push(m);
+    el.innerHTML=`
+      <div class="friend-pin" style="background:${u.color}" id="fpin_${i}">${u.initials}</div>
+      <div class="friend-label" id="flbl_${i}">${u.name} · ${u.score}</div>`;
+    u.marker=new mapboxgl.Marker({element:el,anchor:'bottom'})
+      .setLngLat([u.lng,u.lat]).addTo(map);
+    u.el=el;
+    friendMarkers.push(u.marker);
+  });
+  // Start their movement loop
+  setInterval(()=>moveBetaUsers(),3500);
+}
+
+function moveBetaUsers(){
+  if(!map)return;
+  BETA_USERS.forEach((u,i)=>{
+    // Gradually change direction — simulate walking on streets
+    u.dir+=( Math.random()-.5)*0.4;
+    // Occasionally snap to 90° increments (street grid)
+    if(Math.random()<0.3)u.dir=Math.round(u.dir/(Math.PI/2))*(Math.PI/2);
+
+    const newLat=u.lat+Math.sin(u.dir)*u.speed*3500;
+    const newLng=u.lng+Math.cos(u.dir)*u.speed*3500;
+
+    // Keep within ~800m of player
+    const dist=haversineM(playerLat||u.baseLat,playerLng||u.baseLng,newLat,newLng);
+    if(dist>900){
+      // Turn back toward player
+      u.dir=Math.atan2(
+        (playerLat||u.baseLat)-u.lat,
+        (playerLng||u.baseLng)-u.lng
+      )+( Math.random()-.5)*0.8;
+    } else {
+      u.lat=newLat;u.lng=newLng;
+    }
+
+    u.marker.setLngLat([u.lng,u.lat]);
+
+    // Occasionally increment their score (they're collecting dots)
+    if(Math.random()<0.35){
+      u.score+=Math.floor(Math.random()*3)+1;
+      const lbl=document.getElementById(`flbl_${i}`);
+      if(lbl)lbl.textContent=`${u.name} · ${u.score}`;
+    }
   });
 }
 
@@ -744,8 +802,88 @@ function offset(lat,lng,dLat,dLng){
   return{lat:lat+(dLat/111320),lng:lng+(dLng/(111320*Math.cos(lat*Math.PI/180)))};
 }
 
-function spawnDotsAround(lat,lng){
-  if(!map)return;
+/* ── Road-snapped dot spawning ──
+   Strategy: query Mapbox vector tiles for road features near player,
+   then place dots along those road geometries at regular intervals.
+   Falls back to grid if query fails. */
+let spawnInProgress=false;
+async function spawnDotsAround(lat,lng){
+  if(!map||spawnInProgress)return;
+  spawnInProgress=true;
+  try{
+    await spawnDotsOnRoads(lat,lng);
+  }catch(e){
+    spawnDotsGrid(lat,lng); // fallback
+  }
+  spawnInProgress=false;
+  updateNearby(lat,lng);
+}
+
+async function spawnDotsOnRoads(lat,lng){
+  // Use Mapbox Isochrone API to get walkable area, then place dots on road network
+  // We query rendered features from the map itself — no extra API calls needed
+  if(!map.isStyleLoaded())return spawnDotsGrid(lat,lng);
+
+  // Get all road/path features currently visible in the map
+  const features=map.queryRenderedFeatures(
+    undefined,
+    {layers:['road-primary','road-secondary-tertiary','road-street',
+             'road-minor','road-pedestrian','road-path',
+             'road-steps','road-sidewalk','road-pedestrian-case',
+             'bridge-pedestrian','bridge-path']}
+  );
+
+  if(!features||features.length<5){
+    return spawnDotsGrid(lat,lng);
+  }
+
+  const placed=new Set();
+  let count=0;
+
+  features.forEach(feature=>{
+    if(count>300)return;
+    const geom=feature.geometry;
+    if(!geom)return;
+
+    const lines=geom.type==='LineString'?[geom.coordinates]:
+                 geom.type==='MultiLineString'?geom.coordinates:[];
+
+    lines.forEach(coords=>{
+      // Walk along each line segment placing dots every DOT_SPACING_M metres
+      for(let i=0;i<coords.length-1;i++){
+        const [lng1,lat1]=coords[i];
+        const [lng2,lat2]=coords[i+1];
+        const segLen=haversineM(lat1,lng1,lat2,lng2);
+        const steps=Math.max(1,Math.floor(segLen/DOT_SPACING_M));
+        for(let s=0;s<=steps;s++){
+          const t=s/steps;
+          const dLat=lat1+(lat2-lat1)*t;
+          const dLng=lng1+(lng2-lng1)*t;
+          const dist=haversineM(lat,lng,dLat,dLng);
+          if(dist>SPAWN_RADIUS_M)continue;
+          // Deduplicate by snapping to grid key
+          const key=`${Math.round(dLat*4000)}_${Math.round(dLng*4000)}`;
+          if(placed.has(key))continue;
+          placed.add(key);
+          const id=`dot_${dotIdCounter++}`;
+          if(store.eatenIds[id]||dotMarkers[id])continue;
+          const golden=Math.random()<GOLDEN_CHANCE;
+          const bonus=!golden&&Math.random()<BONUS_CHANCE;
+          const type=golden?'golden':bonus?'bonus':'regular';
+          const pts=golden?25:bonus?5:1;
+          placeDot(id,dLat,dLng,type,pts);
+          count++;
+        }
+      }
+    });
+  });
+
+  // If road query returned very few dots, supplement with grid
+  if(count<20)spawnDotsGrid(lat,lng);
+}
+
+function spawnDotsGrid(lat,lng){
+  // Fallback: grid placement (original method)
   const steps=Math.ceil(SPAWN_RADIUS_M/DOT_SPACING_M);
   for(let dx=-steps;dx<=steps;dx++){
     for(let dy=-steps;dy<=steps;dy++){
@@ -763,7 +901,6 @@ function spawnDotsAround(lat,lng){
       placeDot(id,pos.lat,pos.lng,type,pts);
     }
   }
-  updateNearby(lat,lng);
 }
 
 function spawnLandmarkDots(lat,lng){
@@ -780,7 +917,7 @@ function placeDot(id,lat,lng,type,pts,label){
   const el=document.createElement('div');
   el.className=`dot-marker ${type==='golden'?'golden':type==='bonus'?'bonus':type==='landmark'?'landmark':''}`;
   if(store.eatenIds[id])el.className='dot-marker eaten';
-  el.addEventListener('click',()=>{if(!store.eatenIds[id])collectDot(id,lat,lng,type,pts,label,true);});
+  // tap-to-collect disabled — walk to collect only
   const m=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
   dotMarkers[id]={marker:m,lat,lng,type,pts,label,el};
 }
@@ -809,7 +946,7 @@ function collectDot(id,lat,lng,type,pts,label,tapped){
 
   save();
   const d=dotMarkers[id];if(d)d.el.className='dot-marker eaten';
-  const sp=tapped?{x:window.innerWidth/2,y:window.innerHeight/2}:lngLatToScreen(lng,lat);
+  const sp=lngLatToScreen(lng,lat);
   if(sp){spawnBurst(sp.x,sp.y,type==='golden'?'#FFD166':type==='landmark'?'#0EB8A0':'#F0B429');spawnScorePop(sp.x,sp.y,pts,type);}
   if(type==='golden')showToast(ICONS.star,`Golden dot — +${pts} pts!`);
   else if(type==='landmark')showToast(ICONS.teal,`${label||'Landmark'} — +${pts} pts!`);

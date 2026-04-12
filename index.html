@@ -791,102 +791,74 @@ function restoreEatenDots(){
 /* ── Neighbourhood overlays + entry detection ── */
 let currentNeighbourhood = null;
 
+const NYC_NEIGHBORHOODS = {"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"Upper West Side","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.9897,40.801],[-73.9581,40.801],[-73.9581,40.7751],[-73.9897,40.7751],[-73.9897,40.801]]]}},{"type":"Feature","properties":{"name":"Upper East Side","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.9581,40.7945],[-73.9397,40.7945],[-73.9397,40.764],[-73.9581,40.764],[-73.9581,40.7945]]]}},{"type":"Feature","properties":{"name":"Harlem","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.9897,40.814],[-73.928,40.814],[-73.928,40.801],[-73.9897,40.801],[-73.9897,40.814]]]}},{"type":"Feature","properties":{"name":"Midtown","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.9997,40.764],[-73.9397,40.764],[-73.9397,40.7484],[-73.9997,40.7484],[-73.9997,40.764]]]}},{"type":"Feature","properties":{"name":"Midtown East","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.977,40.758],[-73.9397,40.758],[-73.9397,40.742],[-73.977,40.742],[-73.977,40.758]]]}},{"type":"Feature","properties":{"name":"Hell's Kitchen","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.003,40.768],[-73.987,40.768],[-73.987,40.7484],[-74.003,40.7484],[-74.003,40.768]]]}},{"type":"Feature","properties":{"name":"Chelsea","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.006,40.7484],[-73.987,40.7484],[-73.987,40.738],[-74.006,40.738],[-74.006,40.7484]]]}},{"type":"Feature","properties":{"name":"Greenwich Village","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.006,40.738],[-73.987,40.738],[-73.987,40.726],[-74.006,40.726],[-74.006,40.738]]]}},{"type":"Feature","properties":{"name":"SoHo","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.006,40.726],[-73.994,40.726],[-73.994,40.719],[-74.006,40.719],[-74.006,40.726]]]}},{"type":"Feature","properties":{"name":"Tribeca","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.013,40.719],[-73.994,40.719],[-73.994,40.71],[-74.013,40.71],[-74.013,40.719]]]}},{"type":"Feature","properties":{"name":"Lower Manhattan","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.02,40.71],[-74.0,40.71],[-74.0,40.699],[-74.02,40.699],[-74.02,40.71]]]}},{"type":"Feature","properties":{"name":"Financial District","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.02,40.708],[-74.0,40.708],[-74.0,40.7],[-74.02,40.7],[-74.02,40.708]]]}},{"type":"Feature","properties":{"name":"Lower East Side","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.994,40.722],[-73.97,40.722],[-73.97,40.71],[-73.994,40.71],[-73.994,40.722]]]}},{"type":"Feature","properties":{"name":"East Village","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.994,40.731],[-73.97,40.731],[-73.97,40.722],[-73.994,40.722],[-73.994,40.731]]]}},{"type":"Feature","properties":{"name":"Gramercy","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.987,40.742],[-73.97,40.742],[-73.97,40.731],[-73.987,40.731],[-73.987,40.742]]]}},{"type":"Feature","properties":{"name":"Flatiron","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.994,40.742],[-73.987,40.742],[-73.987,40.736],[-73.994,40.736],[-73.994,40.742]]]}},{"type":"Feature","properties":{"name":"Murray Hill","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.987,40.75],[-73.97,40.75],[-73.97,40.742],[-73.987,40.742],[-73.987,40.75]]]}},{"type":"Feature","properties":{"name":"Morningside Heights","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.966,40.812],[-73.947,40.812],[-73.947,40.801],[-73.966,40.801],[-73.966,40.812]]]}},{"type":"Feature","properties":{"name":"Washington Heights","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.943,40.85],[-73.928,40.85],[-73.928,40.83],[-73.943,40.83],[-73.943,40.85]]]}},{"type":"Feature","properties":{"name":"Williamsburg","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.97,40.72],[-73.935,40.72],[-73.935,40.699],[-73.97,40.699],[-73.97,40.72]]]}},{"type":"Feature","properties":{"name":"Park Slope","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.993,40.676],[-73.97,40.676],[-73.97,40.659],[-73.993,40.659],[-73.993,40.676]]]}},{"type":"Feature","properties":{"name":"Brooklyn Heights","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-74.005,40.701],[-73.99,40.701],[-73.99,40.692],[-74.005,40.692],[-74.005,40.701]]]}},{"type":"Feature","properties":{"name":"DUMBO","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.99,40.705],[-73.98,40.705],[-73.98,40.698],[-73.99,40.698],[-73.99,40.705]]]}},{"type":"Feature","properties":{"name":"Bushwick","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.935,40.706],[-73.9,40.706],[-73.9,40.688],[-73.935,40.688],[-73.935,40.706]]]}},{"type":"Feature","properties":{"name":"Greenpoint","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.97,40.732],[-73.935,40.732],[-73.935,40.72],[-73.97,40.72],[-73.97,40.732]]]}},{"type":"Feature","properties":{"name":"Crown Heights","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.97,40.672],[-73.935,40.672],[-73.935,40.656],[-73.97,40.656],[-73.97,40.672]]]}},{"type":"Feature","properties":{"name":"Flatbush","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.97,40.638],[-73.935,40.638],[-73.935,40.62],[-73.97,40.62],[-73.97,40.638]]]}},{"type":"Feature","properties":{"name":"Red Hook","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-74.015,40.676],[-73.99,40.676],[-73.99,40.66],[-74.015,40.66],[-74.015,40.676]]]}},{"type":"Feature","properties":{"name":"Astoria","borough":"Queens"},"geometry":{"type":"Polygon","coordinates":[[[-73.935,40.79],[-73.9,40.79],[-73.9,40.764],[-73.935,40.764],[-73.935,40.79]]]}},{"type":"Feature","properties":{"name":"Long Island City","borough":"Queens"},"geometry":{"type":"Polygon","coordinates":[[[-73.95,40.754],[-73.928,40.754],[-73.928,40.738],[-73.95,40.738],[-73.95,40.754]]]}},{"type":"Feature","properties":{"name":"Flushing","borough":"Queens"},"geometry":{"type":"Polygon","coordinates":[[[-73.835,40.77],[-73.8,40.77],[-73.8,40.75],[-73.835,40.75],[-73.835,40.77]]]}},{"type":"Feature","properties":{"name":"Jackson Heights","borough":"Queens"},"geometry":{"type":"Polygon","coordinates":[[[-73.9,40.76],[-73.87,40.76],[-73.87,40.745],[-73.9,40.745],[-73.9,40.76]]]}},{"type":"Feature","properties":{"name":"Sunnyside","borough":"Queens"},"geometry":{"type":"Polygon","coordinates":[[[-73.928,40.748],[-73.9,40.748],[-73.9,40.736],[-73.928,40.736],[-73.928,40.748]]]}},{"type":"Feature","properties":{"name":"South Bronx","borough":"Bronx"},"geometry":{"type":"Polygon","coordinates":[[[-73.928,40.83],[-73.89,40.83],[-73.89,40.81],[-73.928,40.81],[-73.928,40.83]]]}},{"type":"Feature","properties":{"name":"Fordham","borough":"Bronx"},"geometry":{"type":"Polygon","coordinates":[[[-73.91,40.862],[-73.88,40.862],[-73.88,40.844],[-73.91,40.844],[-73.91,40.862]]]}},{"type":"Feature","properties":{"name":"Riverdale","borough":"Bronx"},"geometry":{"type":"Polygon","coordinates":[[[-73.928,40.9],[-73.9,40.9],[-73.9,40.88],[-73.928,40.88],[-73.928,40.9]]]}},{"type":"Feature","properties":{"name":"St. George","borough":"Staten Island"},"geometry":{"type":"Polygon","coordinates":[[[-74.085,40.648],[-74.06,40.648],[-74.06,40.632],[-74.085,40.632],[-74.085,40.648]]]}},{"type":"Feature","properties":{"name":"Staten Island","borough":"Staten Island"},"geometry":{"type":"Polygon","coordinates":[[[-74.26,40.74],[-74.034,40.74],[-74.034,40.48],[-74.26,40.48],[-74.26,40.74]]]}}]};
+
+/* ── Neighbourhood boundary layers — hardcoded NYC polygons ── */
 function addNeighbourhoodLayers(){
-  if(!map) return;
+  if(!map || map.getSource('nb-source')) return;
   try{
-    // The correct Mapbox source layer for neighbourhood polygons is 'neighborhood'
-    // in the 'boundaries' tileset — we use GeoJSON from Mapbox's public API instead
-    // to guarantee polygon geometry (not just label points).
-    fetchNeighbourhoodGeoJSON();
-  } catch(e){ console.log('neighbourhood error', e); }
-}
+    map.addSource('nb-source', {
+      type: 'geojson',
+      data: NYC_NEIGHBORHOODS
+    });
 
-async function fetchNeighbourhoodGeoJSON(){
-  // Use Mapbox Geocoding to get neighbourhood boundaries as GeoJSON polygons
-  // We build a small set of known NYC neighbourhood centroids and draw radius zones
-  // as a lightweight proxy until a proper polygon tileset is available.
-  if(!playerLat) return;
-
-  // Use Mapbox's tileset query to get admin boundary polygons at zoom 13
-  // The 'boundaries' source in dark-v11 contains neighbourhood polygons
-  const tryLayers = [
-    'neighborhood-labels',
-    'settlement-subdivision-label',
-    'place-neighborhood-label',
-    'place-neighbourhood-label',
-  ];
-
-  // Draw boundary by querying features in a wide bounding box
-  const W = map.getCanvas().width / window.devicePixelRatio;
-  const H = map.getCanvas().height / window.devicePixelRatio;
-
-  let found = false;
-  for(const layer of tryLayers){
-    try{
-      const feats = map.queryRenderedFeatures([[0,0],[W,H]], {layers:[layer]});
-      if(feats && feats.length > 0){
-        drawNeighbourhoodBoundaries(feats);
-        found = true;
-        break;
+    // Subtle alternating fill per borough
+    map.addLayer({
+      id: 'nb-fill',
+      type: 'fill',
+      source: 'nb-source',
+      paint: {
+        'fill-color': [
+          'match', ['get','borough'],
+          'Manhattan',    'rgba(240,180,41,0.04)',
+          'Brooklyn',     'rgba(14,184,160,0.04)',
+          'Queens',       'rgba(100,140,255,0.04)',
+          'Bronx',        'rgba(200,100,100,0.04)',
+          'Staten Island','rgba(150,200,100,0.04)',
+                          'rgba(255,255,255,0.02)'
+        ],
+        'fill-opacity': 1,
       }
-    } catch(e){}
-  }
+    });
 
-  if(!found){
-    // Final fallback: draw boundaries from the admin layer (city districts)
-    try{
-      const adminFeats = map.queryRenderedFeatures([[0,0],[W,H]], {
-        layers:['admin-0-boundary','admin-1-boundary','admin-2-boundary',
-                'admin-3-4-boundaries','admin-3-4-boundaries-bg']
-      });
-      if(adminFeats && adminFeats.length > 0) drawNeighbourhoodBoundaries(adminFeats);
-    } catch(e){}
-  }
+    // Dashed border — clearly visible but not overwhelming
+    map.addLayer({
+      id: 'nb-border',
+      type: 'line',
+      source: 'nb-source',
+      paint: {
+        'line-color': 'rgba(255,255,255,0.22)',
+        'line-width': 1.5,
+        'line-dasharray': [4, 5],
+      }
+    });
+
+    // Neighbourhood name labels at zoom 14+
+    map.addLayer({
+      id: 'nb-labels',
+      type: 'symbol',
+      source: 'nb-source',
+      minzoom: 13,
+      layout: {
+        'text-field': ['get','name'],
+        'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'],
+        'text-size': 11,
+        'text-letter-spacing': 0.08,
+        'text-transform': 'uppercase',
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+      },
+      paint: {
+        'text-color': 'rgba(255,255,255,0.35)',
+        'text-halo-color': 'rgba(0,0,0,0.4)',
+        'text-halo-width': 1,
+      }
+    });
+
+  } catch(e){ console.error('nb layers error:', e); }
 }
 
-function drawNeighbourhoodBoundaries(features){
-  // Collect unique neighbourhood polygons and add as a GeoJSON source
-  const geojson = {
-    type: 'FeatureCollection',
-    features: features
-      .filter(f => f.geometry &&
-        (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'))
-      .map(f => ({
-        type: 'Feature',
-        geometry: f.geometry,
-        properties: { name: f.properties.name || '' }
-      }))
-  };
-
-  if(geojson.features.length === 0) return;
-
-  if(map.getSource('nb-source')) return; // already added
-
-  map.addSource('nb-source', { type: 'geojson', data: geojson });
-
-  // Subtle fill
-  map.addLayer({
-    id: 'nb-fill',
-    type: 'fill',
-    source: 'nb-source',
-    paint: {
-      'fill-color': 'rgba(14,184,160,0.04)',
-      'fill-opacity': 1,
-    }
-  });
-
-  // Dashed border
-  map.addLayer({
-    id: 'nb-border',
-    type: 'line',
-    source: 'nb-source',
-    paint: {
-      'line-color': 'rgba(255,255,255,0.18)',
-      'line-width': 1.5,
-      'line-dasharray': [4, 6],
-    }
-  });
-}
+function fetchNeighbourhoodGeoJSON(){ addNeighbourhoodLayers(); }
 
 function checkNeighbourhood(lat, lng){
   if(!map || !map.isStyleLoaded()) return;

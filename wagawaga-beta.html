@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="WagaWaga">
+<meta name="theme-color" content="#0B0E14">
+<title>Waga·Waga Walk</title>
+
+<!-- Mapbox GL JS -->
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --gold:#F0B429;--gold-light:#FFD166;--gold-dim:rgba(240,180,41,0.13);
+  --gold-glow:rgba(240,180,41,0.32);--gold-border:rgba(240,180,41,0.25);
+  --teal:#0EB8A0;--teal-light:#2DD4BF;--teal-dim:rgba(14,184,160,0.12);
+  --teal-border:rgba(14,184,160,0.25);
+  --bg:#0B0E14;--slate-1:#111520;--slate-2:#161B27;--slate-3:#1C2235;
+  --glass:rgba(17,21,32,0.88);--glass2:rgba(255,255,255,0.04);
+  --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.11);
+  --text:#EEF0F6;--text2:rgba(238,240,246,0.52);--text3:rgba(238,240,246,0.24);
+  --green:#22C55E;--red:#EF4444;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html,body{
+  height:100%;height:100dvh;
+  background:var(--bg);color:var(--text);
+  font-family:'Outfit',sans-serif;
+  overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+
+.shell{
+  display:flex;flex-direction:column;
+  height:100%;height:100dvh;
+  max-width:430px;margin:0 auto;
+  position:relative;overflow:hidden;
+}
+
+/* ══ MAPBOX MAP ═══════════════════════════════════════════════ */
+#map{
+  position:absolute;inset:0;
+  width:100%;height:100%;
+  z-index:0;
+}
+
+/* Override Mapbox attribution */
+.mapboxgl-ctrl-attrib{
+  background:rgba(11,14,20,0.7)!important;
+  border-radius:6px!important;
+}
+.mapboxgl-ctrl-attrib a{color:var(--text2)!important}
+.mapboxgl-ctrl-logo{display:none!important}
+.mapboxgl-ctrl-bottom-right{bottom:240px!important;right:10px!important}
+.mapboxgl-ctrl-bottom-left{bottom:240px!important}
+
+/* ══ MAP OVERLAYS ═════════════════════════════════════════════ */
+.map-ui{
+  position:absolute;inset:0;
+  z-index:10;pointer-events:none;
+}
+.map-ui > *{pointer-events:all}
+
+/* ══ TOPBAR ═══════════════════════════════════════════════════ */
+.topbar{
+  position:absolute;
+  top:calc(var(--safe-top) + 12px);
+  left:14px;right:14px;z-index:20;
+}
+.topbar-inner{
+  display:flex;align-items:center;gap:10px;
+  background:var(--glass);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);
+  border:1px solid var(--border2);border-radius:18px;padding:10px 12px;
+  box-shadow:0 8px 32px rgba(0,0,0,0.5);
+}
+.brand{flex:1;display:flex;align-items:center;gap:9px}
+.brand-text{display:flex;flex-direction:column;gap:0}
+.brand-name{
+  display:flex;align-items:center;
+  font-size:16px;font-weight:900;letter-spacing:-.04em;line-height:1;
+}
+.bn1{color:var(--text)}
+.bn-sep{
+  width:4px;height:4px;border-radius:50%;background:var(--gold);
+  margin:0 4px 1px;display:inline-block;flex-shrink:0;
+}
+.bn2{color:var(--gold)}
+.brand-loc{font-size:10px;color:var(--text2);display:flex;align-items:center;gap:5px;margin-top:2px}
+.live-dot{
+  width:6px;height:6px;border-radius:50%;background:var(--green);
+  box-shadow:0 0 8px var(--green);animation:livepulse 2s infinite;flex-shrink:0;
+}
+@keyframes livepulse{0%,100%{opacity:1}50%{opacity:.5;transform:scale(1.4)}}
+.topbar-right{display:flex;align-items:center;gap:8px}
+.streak-chip{
+  display:flex;align-items:center;gap:5px;
+  background:var(--gold-dim);border:1px solid var(--gold-border);
+  border-radius:20px;padding:5px 10px 5px 7px;
+  font-size:12px;font-weight:700;color:var(--gold);cursor:pointer;
+}
+.av-btn{
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(135deg,var(--gold-light),var(--gold));
+  border:none;cursor:pointer;font-family:'Outfit',sans-serif;
+  font-weight:900;font-size:14px;color:#1a1200;
+  display:flex;align-items:center;justify-content:center;
+  box-shadow:0 2px 14px var(--gold-glow);flex-shrink:0;
+}
+
+/* ══ SCORE ROW ════════════════════════════════════════════════ */
+.score-row{
+  position:absolute;top:calc(var(--safe-top) + 76px);
+  left:14px;right:14px;
+  display:flex;gap:8px;z-index:20;
+}
+.sp{
+  flex:1;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--border);border-radius:14px;padding:9px 8px 7px;text-align:center;
+  box-shadow:0 4px 20px rgba(0,0,0,0.3);
+}
+.sp .v{font-size:18px;font-weight:800;color:var(--gold);letter-spacing:-.5px;display:block;line-height:1}
+.sp .l{font-size:9px;font-weight:500;color:var(--text2);letter-spacing:.7px;text-transform:uppercase;margin-top:3px;display:block}
+
+/* ══ GPS STATUS ═══════════════════════════════════════════════ */
+.gps-badge{
+  position:absolute;top:calc(var(--safe-top) + 150px);
+  left:14px;z-index:20;
+  background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--border2);border-radius:12px;
+  padding:7px 12px;display:flex;align-items:center;gap:7px;
+  font-size:11px;font-weight:500;color:var(--text2);
+  box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  transition:all .3s;
+}
+.gps-badge.active{border-color:rgba(34,197,94,0.3);color:var(--green)}
+.gps-badge.searching{border-color:rgba(240,180,41,0.3);color:var(--gold)}
+.gps-badge.error{border-color:rgba(239,68,68,0.3);color:var(--red)}
+.gps-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
+.gps-badge.active .gps-dot{animation:livepulse 1.5s infinite}
+
+/* nearby dots counter */
+.nearby-badge{
+  position:absolute;top:calc(var(--safe-top) + 150px);
+  right:14px;z-index:20;
+  background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--border);border-radius:12px;
+  padding:7px 12px;font-size:11px;font-weight:600;color:var(--text2);
+  box-shadow:0 4px 16px rgba(0,0,0,0.3);
+}
+.nearby-badge span{color:var(--gold)}
+
+/* ══ WALK BUTTON ══════════════════════════════════════════════ */
+.walk-wrap{
+  position:absolute;
+  bottom:calc(var(--safe-bottom) + 248px);
+  left:50%;transform:translateX(-50%);z-index:20;
+}
+.walk-btn{
+  display:flex;align-items:center;gap:10px;
+  background:var(--gold);color:#1a1200;border:none;border-radius:100px;
+  padding:14px 30px;font-family:'Outfit',sans-serif;font-weight:700;font-size:15px;
+  cursor:pointer;white-space:nowrap;letter-spacing:-.2px;
+  box-shadow:0 0 40px var(--gold-glow),0 8px 24px rgba(0,0,0,0.35);
+  transition:transform .15s,box-shadow .2s;
+  -webkit-appearance:none;
+}
+.walk-btn:active{transform:scale(.96)}
+.walk-btn.active{
+  background:var(--slate-3);color:var(--text);
+  box-shadow:0 0 0 1.5px var(--border2),0 8px 24px rgba(0,0,0,0.4);
+}
+.walk-btn.active .wdot{background:var(--red);animation:recdot 1.1s infinite}
+.walk-btn.active svg{stroke:var(--text)}
+.wdot{width:8px;height:8px;border-radius:50%;background:rgba(26,18,0,.3);flex-shrink:0;transition:background .2s}
+@keyframes recdot{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}50%{box-shadow:0 0 0 5px rgba(239,68,68,0)}}
+
+/* ══ FABS ═════════════════════════════════════════════════════ */
+.fabs{
+  position:absolute;right:14px;
+  bottom:calc(var(--safe-bottom) + 248px);
+  display:flex;flex-direction:column;gap:9px;z-index:20;
+}
+.fab{
+  width:44px;height:44px;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--border2);border-radius:14px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.35);
+  transition:transform .15s;
+}
+.fab svg{stroke:var(--text2)}
+.fab:active{transform:scale(.93)}
+
+/* ══ SHEET ════════════════════════════════════════════════════ */
+.sheet{
+  position:absolute;bottom:0;left:0;right:0;
+  height:calc(var(--safe-bottom) + 230px);
+  background:var(--glass);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
+  border-top:1px solid var(--border2);border-radius:22px 22px 0 0;
+  z-index:30;display:flex;flex-direction:column;
+  box-shadow:0 -8px 48px rgba(0,0,0,.55);
+}
+.handle{width:36px;height:4px;background:rgba(255,255,255,.12);border-radius:2px;margin:10px auto 0;flex-shrink:0}
+.sheet-nav{display:flex;padding:10px 14px 0;gap:4px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
+.sheet-nav::-webkit-scrollbar{display:none}
+.snav{
+  padding:5px 11px;border-radius:100px;font-size:11px;font-weight:600;
+  cursor:pointer;border:1px solid transparent;background:transparent;color:var(--text2);
+  font-family:'Outfit',sans-serif;transition:all .18s;white-space:nowrap;flex-shrink:0;
+  display:flex;align-items:center;gap:5px;
+}
+.snav svg{stroke:var(--text2);transition:stroke .18s;flex-shrink:0}
+.snav.on-gold{background:var(--gold-dim);border-color:var(--gold-border);color:var(--gold)}
+.snav.on-gold svg{stroke:var(--gold)}
+.snav.on-teal{background:var(--teal-dim);border-color:var(--teal-border);color:var(--teal-light)}
+.snav.on-teal svg{stroke:var(--teal-light)}
+.sheet-content{flex:1;overflow:hidden;position:relative;min-height:0}
+.panel{position:absolute;inset:0;display:flex;flex-direction:column;transition:opacity .22s,transform .22s}
+.panel.hidden{opacity:0;pointer-events:none;transform:translateY(6px)}
+
+/* Today's dots simple tally */
+.tally-panel{padding:12px 16px 8px;display:flex;flex-direction:column;gap:10px}
+.tally-top{display:flex;align-items:baseline;gap:8px}
+.tally-big{font-size:42px;font-weight:900;letter-spacing:-2px;color:var(--gold);line-height:1}
+.tally-label{font-size:12px;color:var(--text2);font-weight:500}
+.tally-streak{
+  display:flex;align-items:center;gap:10px;
+  background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:11px 14px;
+}
+.tally-streak-icon{
+  width:36px;height:36px;border-radius:10px;background:var(--gold-dim);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.tally-streak-info{flex:1}
+.tally-streak-title{font-size:13px;font-weight:700}
+.tally-streak-sub{font-size:10px;color:var(--text2);margin-top:2px}
+.tally-streak-val{font-size:22px;font-weight:900;color:var(--gold)}
+
+/* Dot history list */
+.history-scroll{flex:1;overflow-y:auto;scrollbar-width:none;padding:8px 14px 16px;display:flex;flex-direction:column;gap:6px}
+.history-scroll::-webkit-scrollbar{display:none}
+.hist-row{
+  display:flex;align-items:center;gap:10px;
+  background:var(--glass2);border:1px solid var(--border);border-radius:12px;
+  padding:10px 12px;
+}
+.hist-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.hist-info{flex:1;min-width:0}
+.hist-addr{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hist-time{font-size:10px;color:var(--text2);margin-top:1px}
+.hist-pts{font-size:13px;font-weight:800;color:var(--gold)}
+
+/* Sub tabs */
+.sub-tabs{display:flex;gap:4px;padding:8px 14px 0;flex-shrink:0}
+.stab{
+  padding:4px 10px;border-radius:100px;font-size:10px;font-weight:600;
+  cursor:pointer;border:1px solid transparent;background:transparent;color:var(--text2);
+  font-family:'Outfit',sans-serif;transition:all .18s;
+}
+.stab.on{background:var(--gold-dim);border-color:var(--gold-border);color:var(--gold)}
+
+/* ══ TOAST ════════════════════════════════════════════════════ */
+.toast{
+  position:absolute;
+  top:calc(var(--safe-top) + 80px);
+  left:50%;transform:translateX(-50%) translateY(-14px);
+  background:rgba(11,14,20,0.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+  border:1px solid var(--border2);border-radius:14px;
+  padding:10px 14px;z-index:50;
+  display:flex;align-items:center;gap:10px;
+  box-shadow:0 8px 32px rgba(0,0,0,.55);
+  white-space:nowrap;font-size:13px;font-weight:600;
+  opacity:0;pointer-events:none;transition:opacity .28s,transform .28s;
+  min-width:200px;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast-iw{
+  width:28px;height:28px;border-radius:8px;
+  background:var(--glass2);border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+
+/* ══ BURST ════════════════════════════════════════════════════ */
+.burst-container{position:absolute;inset:0;pointer-events:none;z-index:25;overflow:hidden}
+.burst{
+  position:absolute;border-radius:50%;pointer-events:none;
+  animation:burst-out .65s ease-out forwards;
+}
+@keyframes burst-out{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--bx),var(--by)) scale(0);opacity:0}}
+.score-pop{
+  position:absolute;font-size:14px;font-weight:900;
+  pointer-events:none;animation:score-up .8s ease-out forwards;
+}
+@keyframes score-up{0%{transform:translateY(0) scale(1);opacity:1}100%{transform:translateY(-44px) scale(.8);opacity:0}}
+
+/* ══ PERMISSION SCREEN ════════════════════════════════════════ */
+.permission-screen{
+  position:absolute;inset:0;z-index:100;
+  background:var(--bg);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:40px 32px;text-align:center;gap:24px;
+}
+.permission-screen.hidden{display:none}
+.perm-mark{margin-bottom:8px}
+.perm-title{font-size:24px;font-weight:900;letter-spacing:-.5px}
+.perm-sub{font-size:14px;color:var(--text2);line-height:1.6;max-width:280px}
+.perm-btn{
+  background:var(--gold);color:#1a1200;border:none;border-radius:100px;
+  padding:15px 40px;font-family:'Outfit',sans-serif;font-weight:700;font-size:16px;
+  cursor:pointer;box-shadow:0 0 40px var(--gold-glow);
+  -webkit-appearance:none;
+}
+.perm-note{font-size:11px;color:var(--text3);line-height:1.5;max-width:260px}
+
+/* ══ MAPBOX CUSTOM MARKERS ════════════════════════════════════ */
+.dot-marker{
+  width:12px;height:12px;border-radius:50%;
+  background:var(--gold);
+  box-shadow:0 0 8px var(--gold-glow);
+  cursor:pointer;transition:transform .15s;
+  border:1.5px solid rgba(255,255,255,0.2);
+}
+.dot-marker.bonus{
+  width:18px;height:18px;
+  background:transparent;
+  border:2px solid var(--gold);
+  box-shadow:0 0 12px var(--gold-glow);
+  position:relative;
+}
+.dot-marker.bonus::after{
+  content:'';position:absolute;
+  width:7px;height:7px;border-radius:50%;
+  background:var(--gold);
+  top:50%;left:50%;transform:translate(-50%,-50%);
+}
+.dot-marker.golden{
+  width:20px;height:20px;
+  background:transparent;
+  border:2.5px solid var(--gold-light);
+  box-shadow:0 0 16px rgba(255,209,102,0.7);
+  position:relative;
+  animation:golden-spin 3s linear infinite;
+}
+.dot-marker.golden::after{
+  content:'';position:absolute;
+  width:8px;height:8px;border-radius:50%;
+  background:var(--gold-light);
+  top:50%;left:50%;transform:translate(-50%,-50%);
+  box-shadow:0 0 8px rgba(255,209,102,0.8);
+}
+@keyframes golden-spin{
+  0%,100%{box-shadow:0 0 16px rgba(255,209,102,0.7)}
+  50%{box-shadow:0 0 28px rgba(255,209,102,0.9)}
+}
+.dot-marker.eaten{
+  background:rgba(255,255,255,0.08);
+  border:1px solid rgba(255,255,255,0.1);
+  box-shadow:none;
+}
+
+/* Player marker */
+.player-marker-el{
+  width:40px;height:40px;
+  display:flex;align-items:center;justify-content:center;
+  position:relative;
+}
+.player-ring{
+  position:absolute;
+  width:40px;height:40px;border-radius:50%;
+  background:rgba(240,180,41,0.1);
+  animation:player-pulse 2s infinite;
+}
+@keyframes player-pulse{
+  0%,100%{transform:scale(1);opacity:.6}
+  50%{transform:scale(1.3);opacity:.2}
+}
+.player-pin{
+  width:26px;height:26px;border-radius:50%;
+  background:linear-gradient(135deg,var(--gold-light),var(--gold));
+  border:3px solid #fff;
+  box-shadow:0 2px 16px rgba(240,180,41,0.6),0 0 0 1px rgba(0,0,0,0.1);
+  display:flex;align-items:center;justify-content:center;
+  font-family:'Outfit',sans-serif;font-weight:900;font-size:11px;color:#1a1200;
+  position:relative;z-index:1;
+}
+</style>
+</head>
+<body>
+
+<!-- Permission screen -->
+<div class="permission-screen" id="permScreen">
+  <div class="perm-mark">
+    <svg width="52" height="42" viewBox="0 0 72 56" fill="none">
+      <circle cx="8"  cy="46" r="3.5" fill="rgba(240,180,41,0.18)"/>
+      <circle cx="19" cy="38" r="4"   fill="rgba(240,180,41,0.34)"/>
+      <circle cx="33" cy="27" r="4.5" fill="rgba(240,180,41,0.56)"/>
+      <circle cx="48" cy="17" r="5"   fill="rgba(240,180,41,0.8)"/>
+      <circle cx="62" cy="12" r="8.5" fill="#F0B429"/>
+      <circle cx="62" cy="12" r="3.8" fill="#0B0E14"/>
+      <circle cx="69" cy="5"  r="3.5" fill="#0EB8A0"/>
+    </svg>
+  </div>
+  <div>
+    <div class="perm-title">Waga·Waga Walk</div>
+    <div style="font-size:12px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;color:var(--text2);margin-top:4px">Beta</div>
+  </div>
+  <div class="perm-sub">Walk your neighborhood, collect dots, and compete with friends. Tap below to share your location and start collecting.</div>
+  <button class="perm-btn" onclick="requestLocation()">Enable Location</button>
+  <div class="perm-note">Your location is only used while the app is open and is never stored on a server.</div>
+</div>
+
+<div class="shell">
+  <!-- Mapbox map -->
+  <div id="map"></div>
+
+  <div class="map-ui">
+    <!-- Topbar -->
+    <div class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <svg width="30" height="24" viewBox="0 0 72 56" fill="none" style="flex-shrink:0">
+            <circle cx="8"  cy="46" r="3.5" fill="rgba(240,180,41,0.18)"/>
+            <circle cx="19" cy="38" r="4"   fill="rgba(240,180,41,0.34)"/>
+            <circle cx="33" cy="27" r="4.5" fill="rgba(240,180,41,0.56)"/>
+            <circle cx="48" cy="17" r="5"   fill="rgba(240,180,41,0.8)"/>
+            <circle cx="62" cy="12" r="8.5" fill="var(--gold)"/>
+            <circle cx="62" cy="12" r="3.8" fill="rgba(17,21,32,0.95)"/>
+            <circle cx="69" cy="5"  r="3.5" fill="var(--teal)"/>
+          </svg>
+          <div class="brand-text">
+            <div class="brand-name">
+              <span class="bn1">Waga</span><span class="bn-sep"></span><span class="bn2">Waga</span>
+            </div>
+            <div class="brand-loc">
+              <div class="live-dot"></div>
+              <span id="locLabel">Locating…</span>
+            </div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <div class="streak-chip">
+            <svg width="11" height="14" viewBox="0 0 13 16" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6.5 14.5c2.5 0 4.5-1.8 4.5-4.5 0-1.8-1-3-2-4-.3 1.2-1 2-1.8 2.2C7.8 6.5 7 4.5 5.5 3c0 2-1.5 3.2-2 4.5-.3.8-.5 1.6-.5 2.5 0 2.7 2 4.5 3.5 4.5z"/>
+            </svg>
+            <span id="streakVal">0</span>
+          </div>
+          <button class="av-btn" id="avBtn">?</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Score row -->
+    <div class="score-row">
+      <div class="sp"><span class="v" id="todayScore">0</span><span class="l">Today</span></div>
+      <div class="sp"><span class="v" id="weekScore">0</span><span class="l">Week</span></div>
+      <div class="sp"><span class="v" id="totalScore">0</span><span class="l">All Time</span></div>
+    </div>
+
+    <!-- GPS status -->
+    <div class="gps-badge searching" id="gpsBadge">
+      <div class="gps-dot"></div>
+      <span id="gpsLabel">Searching…</span>
+    </div>
+
+    <!-- Nearby -->
+    <div class="nearby-badge" id="nearbyBadge"><span id="nearbyCount">–</span> nearby</div>
+
+    <!-- Walk button -->
+    <div class="walk-wrap">
+      <button class="walk-btn" id="walkBtn" onclick="toggleWalk()">
+        <div class="wdot" id="wdot"></div>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1a1200" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="13" cy="4" r="2"/>
+          <path d="M7.5 17.5L9.5 12l3 2.5 2-6"/>
+          <path d="M9.5 12L7 18.5"/>
+          <path d="M15 13.5L17.5 19"/>
+        </svg>
+        <span id="walkLabel">Start Walk</span>
+      </button>
+    </div>
+
+    <!-- Fabs -->
+    <div class="fabs">
+      <div class="fab" onclick="centerOnPlayer()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round">
+          <circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+        </svg>
+      </div>
+      <div class="fab" onclick="toggleDotVisibility()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" id="eyeIcon">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+          <circle cx="12" cy="12" r="3"/>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Burst container -->
+    <div class="burst-container" id="burstContainer"></div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast">
+    <div class="toast-iw" id="toastIcon"></div>
+    <div id="toastMsg"></div>
+  </div>
+
+  <!-- Bottom sheet -->
+  <div class="sheet">
+    <div class="handle"></div>
+    <div class="sheet-nav">
+      <button class="snav on-gold" onclick="switchPanel('today',this,'gold')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        Today
+      </button>
+      <button class="snav" onclick="switchPanel('history',this,'gold')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+        </svg>
+        Collected
+      </button>
+      <button class="snav" onclick="switchPanel('about',this,'teal')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+        About
+      </button>
+    </div>
+    <div class="sheet-content">
+
+      <!-- Today panel -->
+      <div class="panel" id="panel-today">
+        <div class="tally-panel">
+          <div class="tally-top">
+            <div class="tally-big" id="tallyBig">0</div>
+            <div class="tally-label">dots collected today</div>
+          </div>
+          <div class="tally-streak">
+            <div class="tally-streak-icon">
+              <svg width="18" height="18" viewBox="0 0 13 16" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M6.5 14.5c2.5 0 4.5-1.8 4.5-4.5 0-1.8-1-3-2-4-.3 1.2-1 2-1.8 2.2C7.8 6.5 7 4.5 5.5 3c0 2-1.5 3.2-2 4.5-.3.8-.5 1.6-.5 2.5 0 2.7 2 4.5 3.5 4.5z"/>
+              </svg>
+            </div>
+            <div class="tally-streak-info">
+              <div class="tally-streak-title">Day Streak</div>
+              <div class="tally-streak-sub">Dots reset at midnight · keep moving</div>
+            </div>
+            <div class="tally-streak-val" id="streakBig">0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Collected history panel -->
+      <div class="panel hidden" id="panel-history">
+        <div class="history-scroll" id="historyList">
+          <div style="padding:16px;text-align:center;font-size:12px;color:var(--text2)">
+            Start walking to collect dots — they'll appear here.
+          </div>
+        </div>
+      </div>
+
+      <!-- About panel -->
+      <div class="panel hidden" id="panel-about">
+        <div class="history-scroll">
+          <div style="padding:14px 2px;display:flex;flex-direction:column;gap:10px">
+            <div style="background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:14px">
+              <div style="font-size:12px;font-weight:700;margin-bottom:5px;color:var(--gold)">How it works</div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.6">Walk around your neighborhood and collect glowing dots. Dots are placed at real intersections near you. Golden dots are rare and worth 25 points each. Dots reset every midnight so there's always a reason to walk tomorrow.</div>
+            </div>
+            <div style="background:var(--glass2);border:1px solid var(--teal-border);border-radius:14px;padding:14px">
+              <div style="font-size:12px;font-weight:700;margin-bottom:5px;color:var(--teal-light)">Beta notes</div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.6">This is an early beta. Leaderboards and friend competition are coming in the next update. Your scores are saved locally on your device for now. Share feedback to <span style="color:var(--teal-light)">beta@wagawaga.app</span></div>
+            </div>
+            <div style="background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:14px">
+              <div style="font-size:12px;font-weight:700;margin-bottom:5px">Add to Home Screen</div>
+              <div style="font-size:11px;color:var(--text2);line-height:1.6">On iPhone: tap the Share button in Safari, then "Add to Home Screen" for a full-screen app experience.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ════════════════════════════════════════════════════════════
+   CONFIG
+════════════════════════════════════════════════════════════ */
+const MAPBOX_TOKEN = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNWYydG9razNwczlueDgifQ.h4r5WT2jyr93yWdzuigUAA';
+const COLLECTION_RADIUS_M = 18;   // metres to collect a dot
+const DOT_SPAWN_RADIUS_M  = 600;  // metres around player to spawn dots
+const DOT_SPACING_M       = 22;   // approximate spacing between dots
+const GOLDEN_CHANCE       = 0.035;
+const BONUS_CHANCE        = 0.07;
+
+/* ════════════════════════════════════════════════════════════
+   STATE — persisted in localStorage
+════════════════════════════════════════════════════════════ */
+const TODAY_KEY   = () => new Date().toISOString().split('T')[0];
+const STORE_KEY   = 'wagawaga_v1';
+
+function loadStore() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return freshStore();
+    const s = JSON.parse(raw);
+    // Reset today's dots if day changed
+    if (s.lastDay !== TODAY_KEY()) {
+      s.todayDots = 0;
+      s.collectedToday = [];
+      s.eatenIds = {};
+      s.lastDay = TODAY_KEY();
+      s.streak = s.walkedYesterday ? s.streak + 1 : 1;
+      s.walkedYesterday = false;
+    }
+    return s;
+  } catch(e) { return freshStore(); }
+}
+
+function freshStore() {
+  return {
+    lastDay: TODAY_KEY(),
+    todayDots: 0,
+    weekDots: 0,
+    totalDots: 0,
+    streak: 0,
+    walkedYesterday: false,
+    collectedToday: [],    // [{pts, lat, lng, time, type}]
+    eatenIds: {},          // dotId -> true (today)
+    initials: '?',
+  };
+}
+
+let store = loadStore();
+
+function saveStore() {
+  localStorage.setItem(STORE_KEY, JSON.stringify(store));
+}
+
+/* ════════════════════════════════════════════════════════════
+   MAP INIT
+════════════════════════════════════════════════════════════ */
+mapboxgl.accessToken = MAPBOX_TOKEN;
+let map = null;
+let playerMarker = null;
+let playerLng = null, playerLat = null;
+let dotMarkers = {};   // id -> {marker, data}
+let dotsVisible = true;
+let tracking = false;
+let watchId = null;
+
+function initMap(lat, lng) {
+  map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/dark-v11',
+    center: [lng, lat],
+    zoom: 16.5,
+    pitch: 30,
+    bearing: 0,
+    attributionControl: true,
+  });
+
+  map.on('load', () => {
+    // Custom dark style overrides
+    applyMapStyle();
+    // Place player
+    spawnPlayerMarker(lat, lng);
+    // Spawn initial dots
+    spawnDotsAround(lat, lng);
+    updateUI();
+  });
+}
+
+function applyMapStyle() {
+  // Darken roads and buildings to match our palette
+  try {
+    map.setPaintProperty('background', 'background-color', '#0B0E14');
+
+    const roadLayers = ['road-primary', 'road-secondary-tertiary', 'road-street', 'road-minor',
+                        'road-motorway-trunk', 'road-primary-case'];
+    roadLayers.forEach(l => {
+      if (map.getLayer(l)) {
+        map.setPaintProperty(l, 'line-color', 'rgba(255,255,255,0.08)');
+      }
+    });
+  } catch(e) {}
+}
+
+/* ════════════════════════════════════════════════════════════
+   PLAYER MARKER
+════════════════════════════════════════════════════════════ */
+function spawnPlayerMarker(lat, lng) {
+  const el = document.createElement('div');
+  el.className = 'player-marker-el';
+  el.innerHTML = `
+    <div class="player-ring"></div>
+    <div class="player-pin" id="playerPin">${store.initials}</div>`;
+
+  playerMarker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+    .setLngLat([lng, lat])
+    .addTo(map);
+}
+
+function movePlayer(lat, lng) {
+  playerLat = lat; playerLng = lng;
+  if (playerMarker) playerMarker.setLngLat([lng, lat]);
+  checkCollections(lat, lng);
+  updateNearby(lat, lng);
+  // Reverse geocode for location label (throttled)
+  if (!movePlayer._lastGeo || Date.now() - movePlayer._lastGeo > 8000) {
+    movePlayer._lastGeo = Date.now();
+    reverseGeocode(lat, lng);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   DOT GENERATION
+════════════════════════════════════════════════════════════ */
+function latLngOffset(lat, lng, dLat, dLng) {
+  // Offset by metres
+  return {
+    lat: lat + (dLat / 111320),
+    lng: lng + (dLng / (111320 * Math.cos(lat * Math.PI / 180)))
+  };
+}
+
+function haversineM(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+let dotIdCounter = 0;
+
+function spawnDotsAround(lat, lng) {
+  if (!map) return;
+
+  // Grid-based placement to ensure even distribution
+  const steps = Math.ceil(DOT_SPAWN_RADIUS_M / DOT_SPACING_M);
+
+  for (let dx = -steps; dx <= steps; dx++) {
+    for (let dy = -steps; dy <= steps; dy++) {
+      const dxM = dx * DOT_SPACING_M;
+      const dyM = dy * DOT_SPACING_M;
+      const distM = Math.sqrt(dxM*dxM + dyM*dyM);
+      if (distM > DOT_SPAWN_RADIUS_M) continue;
+
+      // Add jitter so dots don't sit on a perfect grid
+      const jitterX = (Math.random() - 0.5) * DOT_SPACING_M * 0.6;
+      const jitterY = (Math.random() - 0.5) * DOT_SPACING_M * 0.6;
+      const pos = latLngOffset(lat, lng, dyM + jitterY, dxM + jitterX);
+
+      const id = `dot_${dotIdCounter++}`;
+
+      // Skip if already eaten today
+      if (store.eatenIds[id]) continue;
+      // Skip if already placed
+      if (dotMarkers[id]) continue;
+
+      const isGolden = Math.random() < GOLDEN_CHANCE;
+      const isBonus  = !isGolden && Math.random() < BONUS_CHANCE;
+      const type     = isGolden ? 'golden' : isBonus ? 'bonus' : 'regular';
+      const pts      = isGolden ? 25 : isBonus ? 5 : 1;
+
+      placeDot(id, pos.lat, pos.lng, type, pts);
+    }
+  }
+  updateNearby(lat, lng);
+}
+
+function placeDot(id, lat, lng, type, pts) {
+  const el = document.createElement('div');
+  el.className = `dot-marker ${type === 'golden' ? 'golden' : type === 'bonus' ? 'bonus' : ''}`;
+
+  el.addEventListener('click', () => {
+    if (!store.eatenIds[id]) collectDot(id, lat, lng, type, pts, true);
+  });
+
+  const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+    .setLngLat([lng, lat])
+    .addTo(map);
+
+  dotMarkers[id] = { marker, lat, lng, type, pts, el };
+}
+
+/* ════════════════════════════════════════════════════════════
+   COLLECTION
+════════════════════════════════════════════════════════════ */
+function checkCollections(lat, lng) {
+  Object.entries(dotMarkers).forEach(([id, d]) => {
+    if (store.eatenIds[id]) return;
+    const dist = haversineM(lat, lng, d.lat, d.lng);
+    if (dist <= COLLECTION_RADIUS_M) {
+      collectDot(id, d.lat, d.lng, d.type, d.pts, false);
+    }
+  });
+}
+
+function collectDot(id, lat, lng, type, pts, tapped) {
+  if (store.eatenIds[id]) return;
+
+  // Mark eaten
+  store.eatenIds[id] = true;
+  store.todayDots += pts;
+  store.weekDots  += pts;
+  store.totalDots += pts;
+  store.walkedYesterday = true;
+
+  // History entry
+  store.collectedToday.unshift({
+    pts, lat, lng, type,
+    time: new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
+  });
+  if (store.collectedToday.length > 50) store.collectedToday.pop();
+
+  saveStore();
+
+  // Update marker visually
+  const d = dotMarkers[id];
+  if (d) {
+    d.el.className = 'dot-marker eaten';
+  }
+
+  // FX
+  const screenPos = tapped
+    ? {x: window.innerWidth/2, y: window.innerHeight/2}
+    : lngLatToScreen(lng, lat);
+
+  if (screenPos) {
+    spawnBurst(screenPos.x, screenPos.y, type === 'golden' ? '#FFD166' : type === 'bonus' ? '#0EB8A0' : '#F0B429');
+    spawnScorePop(screenPos.x, screenPos.y, pts, type);
+  }
+
+  if (type === 'golden') showToast(ICONS.star, `Golden dot — +${pts} pts!`);
+  else if (type === 'bonus') showToast(ICONS.teal, `Bonus dot — +${pts} pts`);
+
+  updateUI();
+  updateHistory();
+}
+
+function lngLatToScreen(lng, lat) {
+  if (!map) return null;
+  try {
+    const pt = map.project([lng, lat]);
+    return {x: pt.x, y: pt.y};
+  } catch(e) { return null; }
+}
+
+/* ════════════════════════════════════════════════════════════
+   GEOLOCATION
+════════════════════════════════════════════════════════════ */
+function requestLocation() {
+  document.getElementById('permScreen').classList.add('hidden');
+
+  if (!('geolocation' in navigator)) {
+    setGPSStatus('error', 'GPS not available');
+    return;
+  }
+
+  setGPSStatus('searching', 'Searching…');
+
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const {latitude: lat, longitude: lng, accuracy} = pos.coords;
+      playerLat = lat; playerLng = lng;
+      setGPSStatus('active', `±${Math.round(accuracy)}m`);
+      document.getElementById('locLabel').textContent = 'New York City';
+      initMap(lat, lng);
+      // Ask for initials
+      askInitials();
+    },
+    err => {
+      setGPSStatus('error', 'Location denied');
+      // Fall back to NYC demo location
+      const demoLat = 40.7549, demoLng = -73.9840;
+      playerLat = demoLat; playerLng = demoLng;
+      document.getElementById('locLabel').textContent = 'Demo Mode · NYC';
+      initMap(demoLat, demoLng);
+      showToast(ICONS.warn, 'Using demo location — NYC');
+    },
+    {enableHighAccuracy: true, timeout: 15000, maximumAge: 0}
+  );
+}
+
+function startWatchingPosition() {
+  if (watchId !== null) return;
+  watchId = navigator.geolocation.watchPosition(
+    pos => {
+      const {latitude: lat, longitude: lng, accuracy} = pos.coords;
+      setGPSStatus('active', `±${Math.round(accuracy)}m`);
+      movePlayer(lat, lng);
+      // Spawn more dots if player has moved far enough
+      if (!startWatchingPosition._lastSpawn) startWatchingPosition._lastSpawn = {lat, lng};
+      const d = haversineM(lat, lng, startWatchingPosition._lastSpawn.lat, startWatchingPosition._lastSpawn.lng);
+      if (d > DOT_SPACING_M * 8) {
+        spawnDotsAround(lat, lng);
+        startWatchingPosition._lastSpawn = {lat, lng};
+      }
+    },
+    err => setGPSStatus('error', 'GPS lost'),
+    {enableHighAccuracy: true, maximumAge: 2000, timeout: 20000}
+  );
+}
+
+function stopWatchingPosition() {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+  }
+}
+
+function setGPSStatus(state, text) {
+  const badge = document.getElementById('gpsBadge');
+  const label = document.getElementById('gpsLabel');
+  badge.className = `gps-badge ${state}`;
+  label.textContent = text;
+}
+
+async function reverseGeocode(lat, lng) {
+  try {
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=neighborhood,locality,place&access_token=${MAPBOX_TOKEN}`;
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.features && d.features.length > 0) {
+      document.getElementById('locLabel').textContent = d.features[0].text;
+    }
+  } catch(e){}
+}
+
+/* ════════════════════════════════════════════════════════════
+   WALK TOGGLE
+════════════════════════════════════════════════════════════ */
+function toggleWalk() {
+  tracking = !tracking;
+  const btn = document.getElementById('walkBtn');
+  const lbl = document.getElementById('walkLabel');
+
+  if (tracking) {
+    btn.classList.add('active');
+    lbl.textContent = 'Stop Walk';
+    startWatchingPosition();
+    if (playerLat) centerOnPlayer();
+    showToast(ICONS.walk, 'Walk started — dots are live');
+    // Update streak
+    if (store.streak === 0) store.streak = 1;
+    updateUI();
+    saveStore();
+  } else {
+    btn.classList.remove('active');
+    lbl.textContent = 'Start Walk';
+    stopWatchingPosition();
+    setGPSStatus('searching', 'Paused');
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   UI UPDATES
+════════════════════════════════════════════════════════════ */
+function updateUI() {
+  const fmt = n => n >= 1000 ? (n/1000).toFixed(1)+'k' : n.toString();
+  document.getElementById('todayScore').textContent = fmt(store.todayDots);
+  document.getElementById('weekScore').textContent  = fmt(store.weekDots);
+  document.getElementById('totalScore').textContent = fmt(store.totalDots);
+  document.getElementById('tallyBig').textContent   = store.todayDots;
+  document.getElementById('streakVal').textContent  = store.streak;
+  document.getElementById('streakBig').textContent  = store.streak;
+  const pin = document.getElementById('playerPin');
+  if (pin) pin.textContent = store.initials || '?';
+  document.getElementById('avBtn').textContent = store.initials || '?';
+}
+
+function updateNearby(lat, lng) {
+  const count = Object.values(dotMarkers).filter(d => {
+    if (store.eatenIds[Object.keys(dotMarkers).find(k => dotMarkers[k] === d)]) return false;
+    return haversineM(lat, lng, d.lat, d.lng) < 80;
+  }).length;
+  document.getElementById('nearbyCount').textContent = count;
+}
+
+function updateHistory() {
+  const list = document.getElementById('historyList');
+  if (!store.collectedToday.length) {
+    list.innerHTML = `<div style="padding:16px;text-align:center;font-size:12px;color:var(--text2)">Start walking to collect dots — they'll appear here.</div>`;
+    return;
+  }
+  list.innerHTML = store.collectedToday.map(c => {
+    const dotC = c.type === 'golden' ? '#FFD166' : c.type === 'bonus' ? '#0EB8A0' : '#F0B429';
+    const typeLabel = c.type === 'golden' ? 'Golden dot' : c.type === 'bonus' ? 'Bonus dot' : 'Dot';
+    const coords = `${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}`;
+    return `<div class="hist-row">
+      <div class="hist-dot" style="background:${dotC}"></div>
+      <div class="hist-info">
+        <div class="hist-addr">${typeLabel}</div>
+        <div class="hist-time">${c.time} · ${coords}</div>
+      </div>
+      <div class="hist-pts">+${c.pts}</div>
+    </div>`;
+  }).join('');
+}
+
+/* ════════════════════════════════════════════════════════════
+   PANEL SWITCHING
+════════════════════════════════════════════════════════════ */
+function switchPanel(id, el, color) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.add('hidden'));
+  document.getElementById('panel-' + id).classList.remove('hidden');
+  document.querySelectorAll('.sheet-nav .snav').forEach(s => s.classList.remove('on-gold','on-teal'));
+  el.classList.add('on-' + color);
+  if (id === 'history') updateHistory();
+}
+
+/* ════════════════════════════════════════════════════════════
+   MAP CONTROLS
+════════════════════════════════════════════════════════════ */
+function centerOnPlayer() {
+  if (map && playerLng !== null) {
+    map.flyTo({center: [playerLng, playerLat], zoom: 16.5, speed: 1.2});
+  }
+}
+
+function toggleDotVisibility() {
+  dotsVisible = !dotsVisible;
+  Object.values(dotMarkers).forEach(d => {
+    d.el.style.display = dotsVisible ? '' : 'none';
+  });
+  const icon = document.getElementById('eyeIcon');
+  if (!dotsVisible) {
+    icon.innerHTML = `<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>`;
+  } else {
+    icon.innerHTML = `<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   INITIALS PROMPT
+════════════════════════════════════════════════════════════ */
+function askInitials() {
+  if (store.initials && store.initials !== '?') return;
+  setTimeout(() => {
+    const val = prompt('What are your initials? (e.g. MF)');
+    if (val) {
+      store.initials = val.toUpperCase().slice(0,2);
+      saveStore();
+      updateUI();
+    }
+  }, 1200);
+}
+
+/* ════════════════════════════════════════════════════════════
+   TOAST
+════════════════════════════════════════════════════════════ */
+let toastTimer;
+function showToast(iconHtml, msg) {
+  const el = document.getElementById('toast');
+  document.getElementById('toastIcon').innerHTML = iconHtml;
+  document.getElementById('toastMsg').textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+const ICONS = {
+  star:  `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FFD166" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  teal:  `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2DD4BF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+  walk:  `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M7.5 17.5L9.5 12l3 2.5 2-6"/><path d="M9.5 12L7 18.5"/><path d="M15 13.5L17.5 19"/></svg>`,
+  warn:  `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F0B429" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+};
+
+/* ════════════════════════════════════════════════════════════
+   BURST FX
+════════════════════════════════════════════════════════════ */
+function spawnBurst(x, y, color = '#F0B429') {
+  const bc = document.getElementById('burstContainer');
+  const count = color === '#FFD166' ? 14 : 7;
+  for (let i = 0; i < count; i++) {
+    const b = document.createElement('div');
+    b.className = 'burst';
+    const ang = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+    const dist = 24 + Math.random() * 36;
+    b.style.cssText = `left:${x}px;top:${y}px;width:${color==='#FFD166'?9:7}px;height:${color==='#FFD166'?9:7}px;background:${color};--bx:${Math.cos(ang)*dist}px;--by:${Math.sin(ang)*dist}px`;
+    bc.appendChild(b);
+    setTimeout(() => b.remove(), 650);
+  }
+}
+
+function spawnScorePop(x, y, pts, type) {
+  const bc = document.getElementById('burstContainer');
+  const pop = document.createElement('div');
+  pop.className = 'score-pop';
+  const color = type === 'golden' ? '#FFD166' : type === 'bonus' ? '#0EB8A0' : '#F0B429';
+  pop.style.cssText = `left:${x+8}px;top:${y-10}px;color:${color};font-size:${pts>=5?16:13}px;text-shadow:0 2px 12px ${color}66`;
+  pop.textContent = `+${pts}`;
+  bc.appendChild(pop);
+  setTimeout(() => pop.remove(), 800);
+}
+
+/* ════════════════════════════════════════════════════════════
+   MIDNIGHT RESET CHECK
+════════════════════════════════════════════════════════════ */
+function checkMidnightReset() {
+  const now = new Date();
+  const msToMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1) - now;
+  setTimeout(() => {
+    store = loadStore(); // triggers reset logic
+    updateUI();
+    updateHistory();
+    // Refresh all dot markers
+    Object.values(dotMarkers).forEach(d => {
+      d.el.classList.remove('eaten');
+    });
+    store.eatenIds = {};
+    saveStore();
+    showToast(ICONS.walk, "Midnight reset — new dots available!");
+    checkMidnightReset(); // schedule next
+  }, msToMidnight + 1000);
+}
+
+/* ════════════════════════════════════════════════════════════
+   INIT
+════════════════════════════════════════════════════════════ */
+updateUI();
+checkMidnightReset();
+
+// If returning user already has initials, skip perm screen prompt
+if (store.initials && store.initials !== '?') {
+  document.getElementById('avBtn').textContent = store.initials;
+}
+</script>
+</body>
+</html>

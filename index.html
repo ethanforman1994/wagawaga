@@ -353,26 +353,26 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   transform: translateY(calc(100% - 38px));
 }
 
-/* ── Sheet toggle pill ── */
+/* ── Sheet toggle pill — floats above sheet, always visible ── */
 .sheet-toggle{
   position:absolute;
   left:50%;transform:translateX(-50%);
-  top:-18px;
+  bottom:calc(var(--safe-bottom) + 242px - 14px);
   width:64px;height:28px;
   background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
   border:1px solid var(--border2);border-radius:20px;
   display:flex;align-items:center;justify-content:center;
-  cursor:pointer;
+  cursor:pointer;pointer-events:all;
   box-shadow:0 -2px 12px rgba(0,0,0,0.3);
-  z-index:50;
-  transition:background 0.2s;
+  z-index:45;
+  transition:bottom 0.38s cubic-bezier(0.32,0.72,0,1), background 0.2s;
 }
 .sheet-toggle:active{background:var(--slate-3)}
 .sheet-toggle svg{
-  transition:transform 0.35s cubic-bezier(0.32,0.72,0,1);
+  transition:transform 0.38s cubic-bezier(0.32,0.72,0,1);
   stroke:var(--text2);
 }
-.sheet.collapsed .sheet-toggle svg{
+.sheet-toggle.sheet-closed svg{
   transform:rotate(180deg);
 }
 
@@ -500,14 +500,15 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   <!-- Toast -->
   <div class="toast" id="toast"><div class="toast-iw" id="toastIcon"></div><div id="toastMsg"></div></div>
 
+  <!-- Sheet toggle pill — sits ABOVE the sheet, always visible -->
+  <div class="sheet-toggle" onclick="toggleSheet()" id="sheetToggle">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" id="sheetChevron">
+      <polyline points="18 15 12 9 6 15"/>
+    </svg>
+  </div>
+
   <!-- Sheet -->
   <div class="sheet" id="sheet">
-    <!-- Toggle pill — tap to hide/show sheet -->
-    <div class="sheet-toggle" onclick="toggleSheet()" id="sheetToggle">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="18 15 12 9 6 15"/>
-      </svg>
-    </div>
     <div class="handle"></div>
     <div class="sheet-nav">
       <button class="snav on-gold" onclick="switchPanel('today',this,'gold')">
@@ -588,7 +589,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 ══════════════════════════════════════════════ */
 const MAPBOX_TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
 const COLLECT_RADIUS_M  = 18;
-const SPAWN_RADIUS_M    = 600;
+const SPAWN_RADIUS_M    = 900;  // larger radius = more streets covered
 const DOT_SPACING_M     = 18;  // one dot every ~18m along road
 const GOLDEN_CHANCE     = 0.06;   // ~6% of dots are golden (10pts)
 // Simplified to 2 types for beta: regular (1pt) and golden (10pt)
@@ -1112,7 +1113,8 @@ async function initialWideSpawn(lat, lng){
     setTimeout(res, 5000); // max 5s wait
   });
 
-  // Step 3: Query all walkable road features across the wide view
+  // Step 3: Multi-pass query — jump to 4 offset positions around player
+  // then query at each, capturing roads in all directions
   const allLayers = map.getStyle().layers.map(l => l.id);
   const walkableLayers = allLayers.filter(id => {
     const l = id.toLowerCase();
@@ -1123,28 +1125,56 @@ async function initialWideSpawn(lat, lng){
 
   const existingIds = new Set(Object.keys(DOT_DB));
   const candidates  = [];
+  const allFeatures = [];
+  const seenFIds    = new Set();
 
-  if(walkableLayers.length > 0){
-    let features = [];
-    // Query in a 3x3 grid across the viewport to capture features
-    // that may be off-centre — this ensures full street coverage
-    const W = map.getCanvas().width  / (window.devicePixelRatio || 1);
-    const H = map.getCanvas().height / (window.devicePixelRatio || 1);
-    const gridPoints = [
-      [W*0.1, H*0.1],[W*0.5, H*0.1],[W*0.9, H*0.1],
-      [W*0.1, H*0.5],[W*0.5, H*0.5],[W*0.9, H*0.5],
-      [W*0.1, H*0.9],[W*0.5, H*0.9],[W*0.9, H*0.9],
-    ];
-    // Full viewport query first
-    try{ features = map.queryRenderedFeatures(undefined, {layers: walkableLayers}); }
-    catch(e){}
-    // Then supplement with point queries at grid positions
-    gridPoints.forEach(pt => {
+  function collectFeatures(){
+    try{
+      map.queryRenderedFeatures(undefined, {layers: walkableLayers}).forEach(f => {
+        if(!seenFIds.has(f.id)){ seenFIds.add(f.id); allFeatures.push(f); }
+      });
+    }catch(e){}
+    const W = map.getCanvas().width/(window.devicePixelRatio||1);
+    const H = map.getCanvas().height/(window.devicePixelRatio||1);
+    [[W*.1,H*.1],[W*.9,H*.1],[W*.1,H*.9],[W*.9,H*.9],
+     [W*.5,H*.1],[W*.1,H*.5],[W*.9,H*.5],[W*.5,H*.9]].forEach(pt=>{
       try{
-        const pf = map.queryRenderedFeatures(pt, {layers: walkableLayers});
-        pf.forEach(f => { if(!features.find(x => x.id === f.id)) features.push(f); });
+        map.queryRenderedFeatures(pt,{layers:walkableLayers}).forEach(f=>{
+          if(!seenFIds.has(f.id)){ seenFIds.add(f.id); allFeatures.push(f); }
+        });
       }catch(e){}
     });
+  }
+
+  // Query at player centre
+  collectFeatures();
+
+  // Pan to 4 compass offsets and query each for wider coverage
+  const offsetDeg = 0.006; // ~450m offset
+  const offsets = [
+    [lng+offsetDeg, lat], [lng-offsetDeg, lat],
+    [lng, lat+offsetDeg], [lng, lat-offsetDeg],
+  ];
+  for(const [oLng, oLat] of offsets){
+    map.jumpTo({center:[oLng, oLat], zoom: WIDE_ZOOM});
+    await new Promise(res => {
+      const c = () => { if(map.areTilesLoaded()){ map.off('idle',c); res(); } };
+      map.on('idle', c); setTimeout(res, 2000);
+    });
+    collectFeatures();
+  }
+
+  // Return to player position
+  map.jumpTo({center:[lng, lat], zoom: WIDE_ZOOM});
+  await new Promise(res => {
+    const c = () => { if(map.areTilesLoaded()){ map.off('idle',c); res(); } };
+    map.on('idle', c); setTimeout(res, 1500);
+  });
+  collectFeatures();
+
+  const features = allFeatures;
+
+  if(true){  // features already collected above
 
     features
       .filter(f => {
@@ -1763,39 +1793,41 @@ function scheduleMidnight(){
 
 /* ── Sheet toggle ── */
 let sheetOpen = true;
-const SHEET_HEIGHT   = 242; // matches CSS height
-const COLLAPSED_H    = 38;  // just pill showing
-const SHIFT          = SHEET_HEIGHT - COLLAPSED_H; // 204px
+const SHEET_H    = 242;
+const PILL_H     = 28;
+const PILL_NUDGE = 14; // overlap into sheet top
 
 function toggleSheet(){
   sheetOpen = !sheetOpen;
   const sheet    = document.getElementById('sheet');
+  const pill     = document.getElementById('sheetToggle');
   const walkWrap = document.querySelector('.walk-wrap');
   const fabs     = document.querySelector('.fabs');
-  const svg      = document.querySelector('#sheetToggle svg');
 
   sheet.classList.toggle('collapsed', !sheetOpen);
+  pill.classList.toggle('sheet-closed', !sheetOpen);
 
-  // Move walk button and fabs so they're always above the sheet edge
+  const trans = 'bottom 0.38s cubic-bezier(0.32,0.72,0,1)';
+  walkWrap.style.transition = trans;
+  fabs.style.transition     = trans;
+
+  const safeB = parseInt(getComputedStyle(document.documentElement)
+    .getPropertyValue('--safe-bottom')) || 0;
+
   if(sheetOpen){
+    // Sheet open — pill sits at top of sheet
+    pill.style.bottom     = `${safeB + SHEET_H - PILL_NUDGE}px`;
     walkWrap.style.bottom = '';
     fabs.style.bottom     = '';
   } else {
-    walkWrap.style.bottom = `${COLLAPSED_H + 16}px`;
-    fabs.style.bottom     = `${COLLAPSED_H + 14}px`;
+    // Sheet collapsed — pill floats just above bottom edge
+    pill.style.bottom     = `${safeB + PILL_H}px`;
+    walkWrap.style.bottom = `${safeB + PILL_H + 60}px`;
+    fabs.style.bottom     = `${safeB + PILL_H + 58}px`;
   }
-  walkWrap.style.transition = 'bottom 0.38s cubic-bezier(0.32,0.72,0,1)';
-  fabs.style.transition     = 'bottom 0.38s cubic-bezier(0.32,0.72,0,1)';
 }
 
 /* ══ INIT ══ */
-// Force clear all old wagawaga localStorage keys on load
-// This ensures everyone gets a clean slate with the new version
-Object.keys(localStorage).forEach(k => {
-  if(k.startsWith('wagawaga_')) localStorage.removeItem(k);
-});
-// Reload store after clearing
-store = loadStore();
 updateUI();scheduleMidnight();
 if(store.initials&&store.initials!=='?')document.getElementById('avBtn').textContent=store.initials;
 </script>

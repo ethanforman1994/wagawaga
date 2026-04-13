@@ -601,7 +601,7 @@ const GOLDEN_CHANCE     = 0.06;   // ~6% of dots are golden (10pts)
    STORAGE
 ══════════════════════════════════════════════ */
 const TODAY = () => new Date().toISOString().split('T')[0];
-const SK = 'wagawaga_v3'; // v3: coord-based dot IDs, fresh slate
+const SK = 'wagawaga_v4'; // v4: GL dots, sheet toggle, map follows player
 
 function loadStore(){
   try{
@@ -752,16 +752,26 @@ function spawnPlayerMarker(lat,lng){
   el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="playerPin">${store.initials}</div>`;
   playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 }
-function movePlayer(lat,lng){
-  playerLat=lat;playerLng=lng;
-  if(playerMarker)playerMarker.setLngLat([lng,lat]);
-  checkCollections(lat,lng);
-  updateNearby(lat,lng);
-  // Check neighbourhood every 8 seconds
-  if(!movePlayer._geo||Date.now()-movePlayer._geo>8000){
-    movePlayer._geo=Date.now();
-    reverseGeocode(lat,lng);
-    checkNeighbourhood(lat,lng);
+function movePlayer(lat, lng){
+  playerLat = lat; playerLng = lng;
+  if(playerMarker) playerMarker.setLngLat([lng, lat]);
+  checkCollections(lat, lng);
+  updateNearby(lat, lng);
+
+  // Map follows the player smoothly while walking
+  if(tracking && map){
+    map.easeTo({
+      center: [lng, lat],
+      duration: 800,        // smooth pan, not jarring
+      easing: t => t,       // linear — feels natural while walking
+    });
+  }
+
+  // Neighbourhood check every 8 seconds
+  if(!movePlayer._geo || Date.now() - movePlayer._geo > 8000){
+    movePlayer._geo = Date.now();
+    reverseGeocode(lat, lng);
+    checkNeighbourhood(lat, lng);
   }
 }
 

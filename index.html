@@ -158,6 +158,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   border-top:1px solid var(--border2);border-radius:22px 22px 0 0;
   z-index:30;display:flex;flex-direction:column;
   box-shadow:0 -8px 48px rgba(0,0,0,.55);
+  transition:transform 0.38s cubic-bezier(0.32,0.72,0,1);
 }
 .handle{width:36px;height:4px;background:rgba(255,255,255,.12);border-radius:2px;margin:10px auto 0;flex-shrink:0}
 .sheet-nav{display:flex;padding:10px 14px 0;gap:4px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
@@ -348,10 +349,6 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   margin-left:6px;vertical-align:middle;
 }
 
-/* ── Sheet slide transition ── */
-.sheet{
-  transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
-}
 .sheet.collapsed{
   transform: translateY(calc(100% - 38px));
 }
@@ -589,7 +586,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 /* ══════════════════════════════════════════════
    CONFIG
 ══════════════════════════════════════════════ */
-const MAPBOX_TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNWYydG9razNwczlueDgifQ.h4r5WT2jyr93yWdzuigUAA';
+const MAPBOX_TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
 const COLLECT_RADIUS_M  = 18;
 const SPAWN_RADIUS_M    = 600;
 const DOT_SPACING_M     = 18;  // one dot every ~18m along road
@@ -1101,7 +1098,7 @@ async function initialWideSpawn(lat, lng){
   spawnInProgress = true;
 
   const walkingZoom = map.getZoom();
-  const WIDE_ZOOM   = 12.5; // captures ~1.5km radius of road tiles
+  const WIDE_ZOOM   = 15.5; // renders ALL streets including minor roads + paths
 
   // Step 1: Zoom out silently (no animation — instant)
   map.jumpTo({ center: [lng, lat], zoom: WIDE_ZOOM });
@@ -1129,8 +1126,25 @@ async function initialWideSpawn(lat, lng){
 
   if(walkableLayers.length > 0){
     let features = [];
+    // Query in a 3x3 grid across the viewport to capture features
+    // that may be off-centre — this ensures full street coverage
+    const W = map.getCanvas().width  / (window.devicePixelRatio || 1);
+    const H = map.getCanvas().height / (window.devicePixelRatio || 1);
+    const gridPoints = [
+      [W*0.1, H*0.1],[W*0.5, H*0.1],[W*0.9, H*0.1],
+      [W*0.1, H*0.5],[W*0.5, H*0.5],[W*0.9, H*0.5],
+      [W*0.1, H*0.9],[W*0.5, H*0.9],[W*0.9, H*0.9],
+    ];
+    // Full viewport query first
     try{ features = map.queryRenderedFeatures(undefined, {layers: walkableLayers}); }
     catch(e){}
+    // Then supplement with point queries at grid positions
+    gridPoints.forEach(pt => {
+      try{
+        const pf = map.queryRenderedFeatures(pt, {layers: walkableLayers});
+        pf.forEach(f => { if(!features.find(x => x.id === f.id)) features.push(f); });
+      }catch(e){}
+    });
 
     features
       .filter(f => {
@@ -1245,8 +1259,25 @@ async function spawnDotsAround(lat, lng){
 
   if(walkableLayers.length > 0){
     let features = [];
+    // Query in a 3x3 grid across the viewport to capture features
+    // that may be off-centre — this ensures full street coverage
+    const W = map.getCanvas().width  / (window.devicePixelRatio || 1);
+    const H = map.getCanvas().height / (window.devicePixelRatio || 1);
+    const gridPoints = [
+      [W*0.1, H*0.1],[W*0.5, H*0.1],[W*0.9, H*0.1],
+      [W*0.1, H*0.5],[W*0.5, H*0.5],[W*0.9, H*0.5],
+      [W*0.1, H*0.9],[W*0.5, H*0.9],[W*0.9, H*0.9],
+    ];
+    // Full viewport query first
     try{ features = map.queryRenderedFeatures(undefined, {layers: walkableLayers}); }
     catch(e){}
+    // Then supplement with point queries at grid positions
+    gridPoints.forEach(pt => {
+      try{
+        const pf = map.queryRenderedFeatures(pt, {layers: walkableLayers});
+        pf.forEach(f => { if(!features.find(x => x.id === f.id)) features.push(f); });
+      }catch(e){}
+    });
 
     features
       .filter(f => {
@@ -1732,27 +1763,29 @@ function scheduleMidnight(){
 
 /* ── Sheet toggle ── */
 let sheetOpen = true;
+const SHEET_HEIGHT   = 242; // matches CSS height
+const COLLAPSED_H    = 38;  // just pill showing
+const SHIFT          = SHEET_HEIGHT - COLLAPSED_H; // 204px
+
 function toggleSheet(){
-  const sheet   = document.getElementById('sheet');
+  sheetOpen = !sheetOpen;
+  const sheet    = document.getElementById('sheet');
   const walkWrap = document.querySelector('.walk-wrap');
   const fabs     = document.querySelector('.fabs');
-  sheetOpen = !sheetOpen;
+  const svg      = document.querySelector('#sheetToggle svg');
+
   sheet.classList.toggle('collapsed', !sheetOpen);
 
-  // Shift walk button and fabs up when sheet is hidden
-  const sheetH = sheet.offsetHeight;
-  const collapsedH = 38; // just the toggle pill showing
-  const shift = sheetOpen ? 0 : sheetH - collapsedH;
-
+  // Move walk button and fabs so they're always above the sheet edge
   if(sheetOpen){
     walkWrap.style.bottom = '';
-    fabs.style.bottom = '';
+    fabs.style.bottom     = '';
   } else {
-    const currentWalk = parseInt(getComputedStyle(walkWrap).bottom) || 260;
-    const currentFabs = parseInt(getComputedStyle(fabs).bottom)     || 260;
-    walkWrap.style.bottom = `${currentWalk + shift}px`;
-    fabs.style.bottom     = `${currentFabs + shift}px`;
+    walkWrap.style.bottom = `${COLLAPSED_H + 16}px`;
+    fabs.style.bottom     = `${COLLAPSED_H + 14}px`;
   }
+  walkWrap.style.transition = 'bottom 0.38s cubic-bezier(0.32,0.72,0,1)';
+  fabs.style.transition     = 'bottom 0.38s cubic-bezier(0.32,0.72,0,1)';
 }
 
 /* ══ INIT ══ */

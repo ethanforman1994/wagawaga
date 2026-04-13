@@ -550,7 +550,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 const MAPBOX_TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNWYydG9razNwczlueDgifQ.h4r5WT2jyr93yWdzuigUAA';
 const COLLECT_RADIUS_M  = 18;
 const SPAWN_RADIUS_M    = 600;
-const DOT_SPACING_M     = 22;
+const DOT_SPACING_M     = 48;  // one dot per ~half block
 const GOLDEN_CHANCE     = 0.06;   // ~6% of dots are golden (10pts)
 // Simplified to 2 types for beta: regular (1pt) and golden (10pt)
 // Landmark dots remain as special teal (variable pts)
@@ -687,13 +687,13 @@ function initMap(lat,lng){
     spawnPlayerMarker(lat,lng);
     spawnFriendMarkers(lat,lng);
     addNeighbourhoodLayers();
-    initDotLayers();            // set up GL dot source + layers
-    spawnLandmarkDots(lat,lng); // register landmark dots
-    // Wait for tiles to fully load before road-snapping
+    initDotLayers();
+    spawnLandmarkDots(lat,lng);
+    // Wide initial spawn: zoom out to capture ~1km of road data,
+    // query everything, then zoom back in. User sees a brief zoom
+    // animation but gets dots pre-loaded across a large area.
     map.once('idle', ()=>{
-      spawnDotsAround(lat,lng).then(()=>{
-        refreshDotLayer();
-      });
+      initialWideSpawn(lat, lng);
     });
     updateUI();
     updateLB('day');
@@ -1028,73 +1028,243 @@ function refreshDotLayer(){
   map.getSource('dots-src').setData(buildDotGeoJSON());
 }
 
-/* ── Road-snapped spawning ── */
-async function spawnDotsAround(lat, lng){
-  if(!map || spawnInProgress) return;
+/* ── Road-snapped spawning ──
+   Strategy:
+   1. Query ALL walkable features — streets, paths, park trails, footways
+   2. Place one dot at each segment midpoint
+   3. Deduplicate aggressively: any two dots within DEDUP_RADIUS collapse to one
+   4. Exclude non-walkable types: highways, motorways, service roads
+═══════════════════════════════════════════════════════════════ */
+
+const DEDUP_RADIUS_M = 35; // collapse any dots closer than this to one
+
+/* ── Initial wide spawn ──
+   Temporarily zooms the map out to capture a large radius of road
+   geometry, queries all walkable features, places dots, then
+   smoothly flies back to the user's walking zoom.
+   All existing dedup + road-snap logic applies.
+══════════════════════════════════════════════════════════════ */
+async function initialWideSpawn(lat, lng){
+  if(spawnInProgress) return;
   spawnInProgress = true;
 
-  // Wait for style + tiles to be fully rendered
+  const walkingZoom = map.getZoom();
+  const WIDE_ZOOM   = 12.5; // captures ~1.5km radius of road tiles
+
+  // Step 1: Zoom out silently (no animation — instant)
+  map.jumpTo({ center: [lng, lat], zoom: WIDE_ZOOM });
+
+  // Step 2: Wait for tiles at wide zoom to fully load
   await new Promise(res => {
-    if(map.isStyleLoaded() && map.areTilesLoaded()) return res();
-    map.once('idle', res);
+    const check = () => {
+      if(map.areTilesLoaded()){ map.off('idle', check); res(); }
+    };
+    map.on('idle', check);
+    setTimeout(res, 5000); // max 5s wait
   });
 
+  // Step 3: Query all walkable road features across the wide view
   const allLayers = map.getStyle().layers.map(l => l.id);
-  const roadLayers = allLayers.filter(id => {
+  const walkableLayers = allLayers.filter(id => {
     const l = id.toLowerCase();
-    return l.includes('road') || l.includes('street') || l.includes('path') ||
-           l.includes('pedestrian') || l.includes('footway') || l.includes('walk') ||
-           l.includes('cycleway');
+    return l.includes('road') || l.includes('path') || l.includes('pedestrian') ||
+           l.includes('footway') || l.includes('walk') || l.includes('cycleway') ||
+           l.includes('steps') || l.includes('trail') || l.includes('track');
   });
 
-  let placed = 0;
-  const seen = new Set(Object.keys(DOT_DB)); // don't re-add existing dots
+  const existingIds = new Set(Object.keys(DOT_DB));
+  const candidates  = [];
 
-  if(roadLayers.length > 0){
+  if(walkableLayers.length > 0){
     let features = [];
-    try{ features = map.queryRenderedFeatures(undefined, {layers: roadLayers}); }
+    try{ features = map.queryRenderedFeatures(undefined, {layers: walkableLayers}); }
     catch(e){}
 
-    // Only LineString road centrelines
     features
-      .filter(f => f.geometry &&
-        (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'))
+      .filter(f => {
+        if(!f.geometry) return false;
+        if(f.geometry.type !== 'LineString' && f.geometry.type !== 'MultiLineString') return false;
+        const cls = (f.properties?.class || f.properties?.type || '').toLowerCase();
+        if(EXCLUDE_CLASSES.has(cls)) return false;
+        return true;
+      })
       .forEach(feature => {
         const lines = feature.geometry.type === 'LineString'
           ? [feature.geometry.coordinates]
           : feature.geometry.coordinates;
 
         lines.forEach(coords => {
+          let accumDist = 0;
           for(let i = 0; i < coords.length - 1; i++){
             const [lng1, lat1] = coords[i];
             const [lng2, lat2] = coords[i+1];
             const segLen = haversineM(lat1, lng1, lat2, lng2);
-            if(segLen < 1 || segLen > 400) continue;
+            if(segLen < 1 || segLen > 500) continue;
+            accumDist += segLen;
+            if(accumDist < DOT_SPACING_M) continue;
+            accumDist = 0;
+            const midLat = (lat1 + lat2) / 2;
+            const midLng = (lng1 + lng2) / 2;
+            candidates.push({ lat: midLat, lng: midLng });
+          }
+        });
+      });
+  }
 
-            // Place exactly ONE dot per segment at the midpoint
-            // This guarantees one dot per road segment, no doubles
+  // Step 4: Deduplicate and register dots
+  candidates.sort((a, b) =>
+    haversineM(lat, lng, a.lat, a.lng) - haversineM(lat, lng, b.lat, b.lng)
+  );
+
+  const placed = [];
+  candidates.forEach(c => {
+    const tooClose = placed.some(p => haversineM(c.lat, c.lng, p.lat, p.lng) < DEDUP_RADIUS_M);
+    if(tooClose) return;
+    const id = dotIdFromCoords(c.lat, c.lng);
+    if(existingIds.has(id)) return;
+    existingIds.add(id);
+    placed.push(c);
+    const golden = Math.random() < GOLDEN_CHANCE;
+    registerDot(id, c.lat, c.lng, golden ? 'golden' : 'regular', golden ? 10 : 1);
+  });
+
+  // Fallback if very few dots placed
+  if(placed.length < 15) spawnDotsGrid(lat, lng, existingIds);
+
+  // Step 5: Fly smoothly back to walking zoom
+  map.flyTo({ center: [lng, lat], zoom: walkingZoom, speed: 2.5, curve: 1 });
+
+  // Step 6: Update GL layer once back at walking zoom
+  map.once('moveend', ()=>{
+    refreshDotLayer();
+    updateNearby(lat, lng);
+    spawnInProgress = false;
+    showToast(ICONS.walk, `${placed.length} dots loaded nearby`);
+  });
+}
+
+// Walkable Mapbox road class values to INCLUDE
+const WALKABLE_CLASSES = new Set([
+  'street', 'street_limited', 'pedestrian', 'path',
+  'secondary', 'tertiary', 'primary',
+  'service', 'track', 'link',
+  // park-specific
+  'pedestrian', 'footway', 'steps', 'cycleway',
+]);
+
+// Road class values to EXCLUDE (non-walkable)
+const EXCLUDE_CLASSES = new Set([
+  'motorway', 'motorway_link', 'trunk', 'trunk_link',
+  'ferry', 'aerialway',
+]);
+
+async function spawnDotsAround(lat, lng){
+  if(!map || spawnInProgress) return;
+  spawnInProgress = true;
+
+  // Wait for tiles to fully render before querying
+  await new Promise(res => {
+    if(map.isStyleLoaded() && map.areTilesLoaded()) return res();
+    const check = () => { if(map.areTilesLoaded()){ map.off('idle', check); res(); } };
+    map.on('idle', check);
+    setTimeout(res, 4000); // max wait 4s
+  });
+
+  // Get all layers — include road AND path/pedestrian layers
+  const allLayers = map.getStyle().layers.map(l => l.id);
+  const walkableLayers = allLayers.filter(id => {
+    const l = id.toLowerCase();
+    return (
+      l.includes('road') ||
+      l.includes('path') ||
+      l.includes('pedestrian') ||
+      l.includes('footway') ||
+      l.includes('walk') ||
+      l.includes('cycleway') ||
+      l.includes('steps') ||
+      l.includes('trail') ||
+      l.includes('track')
+    );
+  });
+
+  const existingIds = new Set(Object.keys(DOT_DB));
+  // Candidate dot positions before dedup
+  const candidates = []; // {lat, lng, isPark}
+
+  if(walkableLayers.length > 0){
+    let features = [];
+    try{ features = map.queryRenderedFeatures(undefined, {layers: walkableLayers}); }
+    catch(e){}
+
+    features
+      .filter(f => {
+        if(!f.geometry) return false;
+        if(f.geometry.type !== 'LineString' && f.geometry.type !== 'MultiLineString') return false;
+        // Exclude non-walkable road classes
+        const cls = (f.properties?.class || f.properties?.type || '').toLowerCase();
+        if(EXCLUDE_CLASSES.has(cls)) return false;
+        return true;
+      })
+      .forEach(feature => {
+        const isPark = (feature.properties?.class || '').match(/pedestrian|path|footway|steps|track/i);
+        const lines = feature.geometry.type === 'LineString'
+          ? [feature.geometry.coordinates]
+          : feature.geometry.coordinates;
+
+        lines.forEach(coords => {
+          // Walk the line placing candidates every DOT_SPACING_M metres
+          let accumDist = 0;
+          for(let i = 0; i < coords.length - 1; i++){
+            const [lng1, lat1] = coords[i];
+            const [lng2, lat2] = coords[i+1];
+            const segLen = haversineM(lat1, lng1, lat2, lng2);
+            if(segLen < 1 || segLen > 500) continue;
+
+            accumDist += segLen;
+            if(accumDist < DOT_SPACING_M) continue;
+            accumDist = 0; // reset after placing
+
+            // Place at midpoint of this segment
             const midLat = (lat1 + lat2) / 2;
             const midLng = (lng1 + lng2) / 2;
 
             const distToPlayer = haversineM(lat, lng, midLat, midLng);
             if(distToPlayer > SPAWN_RADIUS_M) continue;
 
-            const id = dotIdFromCoords(midLat, midLng);
-            if(seen.has(id)) continue;
-            seen.add(id);
-
-            const golden = Math.random() < GOLDEN_CHANCE;
-            const type   = golden ? 'golden' : 'regular';
-            const pts    = golden ? 10 : 1;
-            registerDot(id, midLat, midLng, type, pts);
-            placed++;
+            candidates.push({ lat: midLat, lng: midLng, isPark: !!isPark });
           }
         });
       });
   }
 
-  // Fallback grid if road snap yielded nothing
-  if(placed < 10) spawnDotsGrid(lat, lng, seen);
+  // ── Spatial deduplication ──
+  // Sort by distance from player (place closer ones first)
+  candidates.sort((a, b) =>
+    haversineM(lat, lng, a.lat, a.lng) - haversineM(lat, lng, b.lat, b.lng)
+  );
+
+  const placed = []; // accepted dot positions
+  let count = 0;
+
+  candidates.forEach(c => {
+    // Reject if too close to any already-placed dot
+    const tooClose = placed.some(p => haversineM(c.lat, c.lng, p.lat, p.lng) < DEDUP_RADIUS_M);
+    if(tooClose) return;
+
+    const id = dotIdFromCoords(c.lat, c.lng);
+    if(existingIds.has(id)) return;
+    existingIds.add(id);
+    placed.push(c);
+
+    const golden = Math.random() < GOLDEN_CHANCE;
+    const type   = golden ? 'golden' : 'regular';
+    const pts    = golden ? 10 : 1;
+    registerDot(id, c.lat, c.lng, type, pts);
+    count++;
+  });
+
+  // Fallback if road snap found nothing
+  if(count < 8) spawnDotsGrid(lat, lng, existingIds);
 
   refreshDotLayer();
   spawnInProgress = false;
@@ -1102,15 +1272,19 @@ async function spawnDotsAround(lat, lng){
 }
 
 function spawnDotsGrid(lat, lng, seen = new Set()){
+  // Grid fallback — use same dedup radius to keep density consistent
+  const placed = [];
   const steps = Math.ceil(SPAWN_RADIUS_M / DOT_SPACING_M);
   for(let dx = -steps; dx <= steps; dx++){
     for(let dy = -steps; dy <= steps; dy++){
       const dxM = dx * DOT_SPACING_M, dyM = dy * DOT_SPACING_M;
       if(Math.sqrt(dxM*dxM + dyM*dyM) > SPAWN_RADIUS_M) continue;
       const pos = offset(lat, lng, dyM, dxM);
-      const id  = dotIdFromCoords(pos.lat, pos.lng);
+      const tooClose = placed.some(p => haversineM(pos.lat, pos.lng, p.lat, p.lng) < DEDUP_RADIUS_M);
+      if(tooClose) continue;
+      const id = dotIdFromCoords(pos.lat, pos.lng);
       if(seen.has(id) || DOT_DB[id]) continue;
-      seen.add(id);
+      seen.add(id); placed.push(pos);
       const golden = Math.random() < GOLDEN_CHANCE;
       registerDot(id, pos.lat, pos.lng, golden ? 'golden' : 'regular', golden ? 10 : 1);
     }

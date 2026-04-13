@@ -347,6 +347,42 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   font-size:10px;font-weight:700;color:var(--teal-light);
   margin-left:6px;vertical-align:middle;
 }
+
+/* ── Sheet slide transition ── */
+.sheet{
+  transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.sheet.collapsed{
+  transform: translateY(calc(100% - 38px));
+}
+
+/* ── Sheet toggle pill ── */
+.sheet-toggle{
+  position:absolute;
+  left:50%;transform:translateX(-50%);
+  top:-18px;
+  width:64px;height:28px;
+  background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+  border:1px solid var(--border2);border-radius:20px;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  box-shadow:0 -2px 12px rgba(0,0,0,0.3);
+  z-index:50;
+  transition:background 0.2s;
+}
+.sheet-toggle:active{background:var(--slate-3)}
+.sheet-toggle svg{
+  transition:transform 0.35s cubic-bezier(0.32,0.72,0,1);
+  stroke:var(--text2);
+}
+.sheet.collapsed .sheet-toggle svg{
+  transform:rotate(180deg);
+}
+
+/* When sheet collapsed, move walk btn and fabs up */
+.walk-wrap, .fabs{
+  transition: bottom 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+}
 </style>
 </head>
 <body>
@@ -468,7 +504,13 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   <div class="toast" id="toast"><div class="toast-iw" id="toastIcon"></div><div id="toastMsg"></div></div>
 
   <!-- Sheet -->
-  <div class="sheet">
+  <div class="sheet" id="sheet">
+    <!-- Toggle pill — tap to hide/show sheet -->
+    <div class="sheet-toggle" onclick="toggleSheet()" id="sheetToggle">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="18 15 12 9 6 15"/>
+      </svg>
+    </div>
     <div class="handle"></div>
     <div class="sheet-nav">
       <button class="snav on-gold" onclick="switchPanel('today',this,'gold')">
@@ -550,7 +592,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 const MAPBOX_TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNWYydG9razNwczlueDgifQ.h4r5WT2jyr93yWdzuigUAA';
 const COLLECT_RADIUS_M  = 18;
 const SPAWN_RADIUS_M    = 600;
-const DOT_SPACING_M     = 48;  // one dot per ~half block
+const DOT_SPACING_M     = 18;  // one dot every ~18m along road
 const GOLDEN_CHANCE     = 0.06;   // ~6% of dots are golden (10pts)
 // Simplified to 2 types for beta: regular (1pt) and golden (10pt)
 // Landmark dots remain as special teal (variable pts)
@@ -1036,7 +1078,7 @@ function refreshDotLayer(){
    4. Exclude non-walkable types: highways, motorways, service roads
 ═══════════════════════════════════════════════════════════════ */
 
-const DEDUP_RADIUS_M = 35; // collapse any dots closer than this to one
+const DEDUP_RADIUS_M = 20; // collapse dots within 20m — prevents doubles, keeps density
 
 /* ── Initial wide spawn ──
    Temporarily zooms the map out to capture a large radius of road
@@ -1676,6 +1718,31 @@ function scheduleMidnight(){
     showToast(ICONS.walk,'Midnight! Fresh dots are live');
     scheduleMidnight();
   },ms+1000);
+}
+
+/* ── Sheet toggle ── */
+let sheetOpen = true;
+function toggleSheet(){
+  const sheet   = document.getElementById('sheet');
+  const walkWrap = document.querySelector('.walk-wrap');
+  const fabs     = document.querySelector('.fabs');
+  sheetOpen = !sheetOpen;
+  sheet.classList.toggle('collapsed', !sheetOpen);
+
+  // Shift walk button and fabs up when sheet is hidden
+  const sheetH = sheet.offsetHeight;
+  const collapsedH = 38; // just the toggle pill showing
+  const shift = sheetOpen ? 0 : sheetH - collapsedH;
+
+  if(sheetOpen){
+    walkWrap.style.bottom = '';
+    fabs.style.bottom = '';
+  } else {
+    const currentWalk = parseInt(getComputedStyle(walkWrap).bottom) || 260;
+    const currentFabs = parseInt(getComputedStyle(fabs).bottom)     || 260;
+    walkWrap.style.bottom = `${currentWalk + shift}px`;
+    fabs.style.bottom     = `${currentFabs + shift}px`;
+  }
 }
 
 /* ══ INIT ══ */

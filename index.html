@@ -326,62 +326,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 .perm-note{font-size:11px;color:var(--text3);line-height:1.5;max-width:260px}
 
 /* ── MARKERS ── */
-/* ── Regular dot: teal ── */
-.dot-marker{
-  width:11px;height:11px;border-radius:50%;
-  background:var(--teal);
-  box-shadow:0 0 7px rgba(14,184,160,0.55);
-  cursor:pointer;
-  border:1.5px solid rgba(255,255,255,0.15);
-}
-
-/* ── Golden dot: gold with pulse ── */
-.dot-marker.golden{
-  width:18px;height:18px;
-  background:var(--gold);
-  border:2px solid var(--gold-light);
-  box-shadow:0 0 14px rgba(240,180,41,0.75);
-  position:relative;
-  animation:golden-pulse 1.8s ease-in-out infinite;
-}
-.dot-marker.golden::after{
-  content:'';position:absolute;
-  width:7px;height:7px;border-radius:50%;
-  background:#fff;opacity:0.5;
-  top:50%;left:50%;transform:translate(-50%,-50%);
-}
-@keyframes golden-pulse{
-  0%,100%{box-shadow:0 0 14px rgba(240,180,41,0.75)}
-  50%{box-shadow:0 0 26px rgba(240,180,41,1),0 0 8px rgba(255,255,255,0.3)}
-}
-
-/* ── Landmark dot: white fill + teal outer ring ── */
-.dot-marker.landmark{
-  width:22px;height:22px;
-  background:#fff;
-  border:3px solid var(--teal);
-  box-shadow:0 0 0 4px rgba(14,184,160,0.2),0 0 18px rgba(14,184,160,0.4);
-  position:relative;
-  animation:landmark-pulse 2.5s ease-in-out infinite;
-}
-.dot-marker.landmark::after{
-  content:'';position:absolute;
-  width:8px;height:8px;border-radius:50%;
-  background:var(--teal);
-  top:50%;left:50%;transform:translate(-50%,-50%);
-}
-@keyframes landmark-pulse{
-  0%,100%{box-shadow:0 0 0 4px rgba(14,184,160,0.2),0 0 18px rgba(14,184,160,0.4)}
-  50%{box-shadow:0 0 0 7px rgba(14,184,160,0.12),0 0 28px rgba(14,184,160,0.6)}
-}
-
-/* ── Eaten dot: faint ghost ring ── */
-.dot-marker.eaten{
-  width:11px;height:11px;
-  background:transparent;
-  border:1px solid rgba(255,255,255,0.08);
-  box-shadow:none;animation:none;
-}
+/* Dots are now rendered as Mapbox GL layers — no HTML marker CSS needed */
 
 .player-marker-el{width:40px;height:40px;display:flex;align-items:center;justify-content:center;position:relative}
 .player-ring{position:absolute;width:40px;height:40px;border-radius:50%;background:rgba(240,180,41,0.1);animation:player-pulse 2s infinite}
@@ -699,7 +644,7 @@ const CH_ICONS={
 mapboxgl.accessToken = MAPBOX_TOKEN;
 let map=null, playerMarker=null;
 let playerLat=null, playerLng=null;
-let dotMarkers={}, friendMarkers=[], ghostMarkers=[];
+let friendMarkers=[], ghostMarkers=[]; // dots now in DOT_DB + GL layer
 let tracking=false, watchId=null;
 
 let dotIdCounter=0; // fallback counter only
@@ -741,13 +686,15 @@ function initMap(lat,lng){
   map.on('load',()=>{
     spawnPlayerMarker(lat,lng);
     spawnFriendMarkers(lat,lng);
-    spawnLandmarkDots(lat,lng);
     addNeighbourhoodLayers();
-    // Wait for tiles then spawn road-snapped dots
-    setTimeout(()=>{
-      spawnDotsAround(lat,lng);
-      setTimeout(()=>restoreEatenDots(),800);
-    },1400);
+    initDotLayers();            // set up GL dot source + layers
+    spawnLandmarkDots(lat,lng); // register landmark dots
+    // Wait for tiles to fully load before road-snapping
+    map.once('idle', ()=>{
+      spawnDotsAround(lat,lng).then(()=>{
+        refreshDotLayer();
+      });
+    });
     updateUI();
     updateLB('day');
     updateTerritories();
@@ -778,12 +725,7 @@ function movePlayer(lat,lng){
 
 /* ── Restore today's session on map reload ── */
 function restoreEatenDots(){
-  // Mark any already-eaten dots as visually eaten
-  Object.entries(dotMarkers).forEach(([id,d])=>{
-    if(store.eatenIds[id]){
-      d.el.className='dot-marker eaten';
-    }
-  });
+  refreshDotLayer(); // GL layer handles eaten state automatically
 }
 
 
@@ -977,160 +919,261 @@ function offset(lat,lng,dLat,dLng){
   return{lat:lat+(dLat/111320),lng:lng+(dLng/(111320*Math.cos(lat*Math.PI/180)))};
 }
 
-/* ── Road-snapped dot spawning ──
-   Strategy: query Mapbox vector tiles for road features near player,
-   then place dots along those road geometries at regular intervals.
-   Falls back to grid if query fails. */
-let spawnInProgress=false;
-async function spawnDotsAround(lat,lng){
-  if(!map||spawnInProgress)return;
-  spawnInProgress=true;
-  try{
-    await spawnDotsOnRoads(lat,lng);
-  }catch(e){
-    spawnDotsGrid(lat,lng); // fallback
-  }
-  spawnInProgress=false;
-  updateNearby(lat,lng);
-}
+/* ═══════════════════════════════════════════════════════════════
+   GL LAYER DOT SYSTEM
+   All dots rendered as a single Mapbox GL GeoJSON source.
+   Zero HTML markers = stable at any zoom, no drift, one dot
+   per road centreline point, instant updates on collection.
+═══════════════════════════════════════════════════════════════ */
 
-async function spawnDotsOnRoads(lat,lng){
-  if(!map.isStyleLoaded())return spawnDotsGrid(lat,lng);
+// Master dot store — all dots keyed by stable coord ID
+// { id: { lat, lng, type, pts, label, eaten } }
+const DOT_DB = {};
 
-  // Get all layer IDs from the current style and find road-related ones
-  const allLayers=map.getStyle().layers.map(l=>l.id);
-  const roadLayers=allLayers.filter(id=>{
-    const l=id.toLowerCase();
-    return l.includes('road')||l.includes('street')||l.includes('path')||
-           l.includes('pedestrian')||l.includes('footway')||l.includes('walk')||
-           l.includes('sidewalk')||l.includes('cycleway')||l.includes('bridge');
+let spawnInProgress = false;
+let glSourceReady   = false;
+
+/* ── Init GL dot layers ── */
+function initDotLayers(){
+  if(!map || map.getSource('dots-src')) return;
+
+  map.addSource('dots-src', {
+    type: 'geojson',
+    data: buildDotGeoJSON()
   });
 
-  if(roadLayers.length===0)return spawnDotsGrid(lat,lng);
-
-  // Query rendered features on those layers
-  let features=[];
-  try{
-    features=map.queryRenderedFeatures(undefined,{layers:roadLayers});
-  }catch(e){
-    // Some layers may not support queryRenderedFeatures — try one by one
-    for(const layer of roadLayers){
-      try{
-        const f=map.queryRenderedFeatures(undefined,{layers:[layer]});
-        features=features.concat(f);
-      }catch(e2){}
+  // Regular dots — teal filled circles
+  map.addLayer({
+    id: 'dots-regular',
+    type: 'circle',
+    source: 'dots-src',
+    filter: ['all', ['==',['get','type'],'regular'], ['==',['get','eaten'],false]],
+    paint: {
+      'circle-radius':  ['interpolate',['linear'],['zoom'], 14,4, 17,6, 19,8],
+      'circle-color':   '#0EB8A0',
+      'circle-opacity': 0.9,
+      'circle-stroke-width': 1,
+      'circle-stroke-color': 'rgba(255,255,255,0.2)',
     }
-  }
+  });
 
-  // Filter to only LineString geometries (roads are lines)
-  const lineFeatures=features.filter(f=>
-    f.geometry&&(f.geometry.type==='LineString'||f.geometry.type==='MultiLineString')
-  );
+  // Golden dots — gold, slightly larger
+  map.addLayer({
+    id: 'dots-golden',
+    type: 'circle',
+    source: 'dots-src',
+    filter: ['all', ['==',['get','type'],'golden'], ['==',['get','eaten'],false]],
+    paint: {
+      'circle-radius':  ['interpolate',['linear'],['zoom'], 14,6, 17,9, 19,12],
+      'circle-color':   '#F0B429',
+      'circle-opacity': 1,
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#FFD166',
+      'circle-blur': 0.15,
+    }
+  });
 
-  if(lineFeatures.length<3)return spawnDotsGrid(lat,lng);
+  // Landmark dots — white with teal stroke
+  map.addLayer({
+    id: 'dots-landmark',
+    type: 'circle',
+    source: 'dots-src',
+    filter: ['all', ['==',['get','type'],'landmark'], ['==',['get','eaten'],false]],
+    paint: {
+      'circle-radius':  ['interpolate',['linear'],['zoom'], 14,8, 17,12, 19,16],
+      'circle-color':   '#ffffff',
+      'circle-opacity': 1,
+      'circle-stroke-width': 3,
+      'circle-stroke-color': '#0EB8A0',
+    }
+  });
 
-  const placed=new Set();
-  let count=0;
+  // Eaten dots — very faint ring so walked streets are visible
+  map.addLayer({
+    id: 'dots-eaten',
+    type: 'circle',
+    source: 'dots-src',
+    filter: ['==',['get','eaten'],true],
+    paint: {
+      'circle-radius':  ['interpolate',['linear'],['zoom'], 14,3, 17,5],
+      'circle-color':   'rgba(255,255,255,0)',
+      'circle-stroke-width': 1,
+      'circle-stroke-color': 'rgba(255,255,255,0.12)',
+      'circle-stroke-opacity': 0.5,
+    }
+  });
 
-  lineFeatures.forEach(feature=>{
-    if(count>400)return;
-    const geom=feature.geometry;
-    const lines=geom.type==='LineString'?[geom.coordinates]:geom.coordinates;
+  glSourceReady = true;
+}
 
-    lines.forEach(coords=>{
-      for(let i=0;i<coords.length-1;i++){
-        const[lng1,lat1]=coords[i];
-        const[lng2,lat2]=coords[i+1];
-        const segLen=haversineM(lat1,lng1,lat2,lng2);
-        if(segLen>500)continue; // skip unreasonably long segments
-        const steps=Math.max(1,Math.floor(segLen/DOT_SPACING_M));
-        for(let s=0;s<=steps;s++){
-          const t=s/steps;
-          const dLat=lat1+(lat2-lat1)*t;
-          const dLng=lng1+(lng2-lng1)*t;
-          const dist=haversineM(lat,lng,dLat,dLng);
-          if(dist>SPAWN_RADIUS_M)continue;
-          const id=dotIdFromCoords(dLat,dLng); // stable coord-based ID
-          if(placed.has(id)||store.eatenIds[id]||dotMarkers[id])continue;
-          placed.add(id);
-          const golden=Math.random()<GOLDEN_CHANCE;
-          const type=golden?'golden':'regular';
-          const pts=golden?10:1; // simplified: golden=10, regular=1
-          placeDot(id,dLat,dLng,type,pts);
-          count++;
-        }
+function buildDotGeoJSON(){
+  return {
+    type: 'FeatureCollection',
+    features: Object.values(DOT_DB).map(d => ({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
+      properties: {
+        id:    d.id,
+        type:  d.type,
+        pts:   d.pts,
+        label: d.label || '',
+        eaten: store.eatenIds[d.id] ? true : false,
       }
-    });
-  });
-
-  if(count<15)spawnDotsGrid(lat,lng);
+    }))
+  };
 }
 
-function spawnDotsGrid(lat,lng){
-  const steps=Math.ceil(SPAWN_RADIUS_M/DOT_SPACING_M);
-  for(let dx=-steps;dx<=steps;dx++){
-    for(let dy=-steps;dy<=steps;dy++){
-      const dxM=dx*DOT_SPACING_M,dyM=dy*DOT_SPACING_M;
-      if(Math.sqrt(dxM*dxM+dyM*dyM)>SPAWN_RADIUS_M)continue;
-      const pos=offset(lat,lng,dyM,dxM); // no jitter — stable coords
-      const id=dotIdFromCoords(pos.lat,pos.lng); // stable coord-based ID
-      if(store.eatenIds[id]||dotMarkers[id])continue;
-      const golden=Math.random()<GOLDEN_CHANCE;
-      const type=golden?'golden':'regular';
-      const pts=golden?10:1; // simplified: golden=10, regular=1
-      placeDot(id,pos.lat,pos.lng,type,pts);
+function refreshDotLayer(){
+  if(!glSourceReady || !map.getSource('dots-src')) return;
+  map.getSource('dots-src').setData(buildDotGeoJSON());
+}
+
+/* ── Road-snapped spawning ── */
+async function spawnDotsAround(lat, lng){
+  if(!map || spawnInProgress) return;
+  spawnInProgress = true;
+
+  // Wait for style + tiles to be fully rendered
+  await new Promise(res => {
+    if(map.isStyleLoaded() && map.areTilesLoaded()) return res();
+    map.once('idle', res);
+  });
+
+  const allLayers = map.getStyle().layers.map(l => l.id);
+  const roadLayers = allLayers.filter(id => {
+    const l = id.toLowerCase();
+    return l.includes('road') || l.includes('street') || l.includes('path') ||
+           l.includes('pedestrian') || l.includes('footway') || l.includes('walk') ||
+           l.includes('cycleway');
+  });
+
+  let placed = 0;
+  const seen = new Set(Object.keys(DOT_DB)); // don't re-add existing dots
+
+  if(roadLayers.length > 0){
+    let features = [];
+    try{ features = map.queryRenderedFeatures(undefined, {layers: roadLayers}); }
+    catch(e){}
+
+    // Only LineString road centrelines
+    features
+      .filter(f => f.geometry &&
+        (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString'))
+      .forEach(feature => {
+        const lines = feature.geometry.type === 'LineString'
+          ? [feature.geometry.coordinates]
+          : feature.geometry.coordinates;
+
+        lines.forEach(coords => {
+          for(let i = 0; i < coords.length - 1; i++){
+            const [lng1, lat1] = coords[i];
+            const [lng2, lat2] = coords[i+1];
+            const segLen = haversineM(lat1, lng1, lat2, lng2);
+            if(segLen < 1 || segLen > 400) continue;
+
+            // Place exactly ONE dot per segment at the midpoint
+            // This guarantees one dot per road segment, no doubles
+            const midLat = (lat1 + lat2) / 2;
+            const midLng = (lng1 + lng2) / 2;
+
+            const distToPlayer = haversineM(lat, lng, midLat, midLng);
+            if(distToPlayer > SPAWN_RADIUS_M) continue;
+
+            const id = dotIdFromCoords(midLat, midLng);
+            if(seen.has(id)) continue;
+            seen.add(id);
+
+            const golden = Math.random() < GOLDEN_CHANCE;
+            const type   = golden ? 'golden' : 'regular';
+            const pts    = golden ? 10 : 1;
+            registerDot(id, midLat, midLng, type, pts);
+            placed++;
+          }
+        });
+      });
+  }
+
+  // Fallback grid if road snap yielded nothing
+  if(placed < 10) spawnDotsGrid(lat, lng, seen);
+
+  refreshDotLayer();
+  spawnInProgress = false;
+  updateNearby(lat, lng);
+}
+
+function spawnDotsGrid(lat, lng, seen = new Set()){
+  const steps = Math.ceil(SPAWN_RADIUS_M / DOT_SPACING_M);
+  for(let dx = -steps; dx <= steps; dx++){
+    for(let dy = -steps; dy <= steps; dy++){
+      const dxM = dx * DOT_SPACING_M, dyM = dy * DOT_SPACING_M;
+      if(Math.sqrt(dxM*dxM + dyM*dyM) > SPAWN_RADIUS_M) continue;
+      const pos = offset(lat, lng, dyM, dxM);
+      const id  = dotIdFromCoords(pos.lat, pos.lng);
+      if(seen.has(id) || DOT_DB[id]) continue;
+      seen.add(id);
+      const golden = Math.random() < GOLDEN_CHANCE;
+      registerDot(id, pos.lat, pos.lng, golden ? 'golden' : 'regular', golden ? 10 : 1);
     }
   }
 }
 
-function spawnLandmarkDots(lat,lng){
-  NYC_LANDMARKS.forEach((lm,i)=>{
-    const id=`landmark_${i}`;
-    if(store.eatenIds[id]||dotMarkers[id])return;
-    // Only show if within 5km
-    if(haversineM(lat,lng,lm.lat,lm.lng)>5000)return;
-    placeDot(id,lm.lat,lm.lng,'landmark',lm.pts,lm.name);
+function spawnLandmarkDots(lat, lng){
+  NYC_LANDMARKS.forEach((lm, i) => {
+    const id = `landmark_${i}`;
+    if(DOT_DB[id]) return;
+    if(haversineM(lat, lng, lm.lat, lm.lng) > 5000) return;
+    registerDot(id, lm.lat, lm.lng, 'landmark', lm.pts, lm.name);
   });
 }
 
-function placeDot(id,lat,lng,type,pts,label){
-  const el=document.createElement('div');
-  el.className=`dot-marker ${type==='golden'?'golden':type==='bonus'?'bonus':type==='landmark'?'landmark':''}`;
-  if(store.eatenIds[id])el.className='dot-marker eaten';
-  // tap-to-collect disabled — walk to collect only
-  const m=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
-  dotMarkers[id]={marker:m,lat,lng,type,pts,label,el};
+function registerDot(id, lat, lng, type, pts, label){
+  DOT_DB[id] = { id, lat, lng, type, pts, label: label || null };
 }
 
-function checkCollections(lat,lng){
-  Object.entries(dotMarkers).forEach(([id,d])=>{
-    if(store.eatenIds[id])return;
-    if(haversineM(lat,lng,d.lat,d.lng)<=COLLECT_RADIUS_M)
-      collectDot(id,d.lat,d.lng,d.type,d.pts,d.label,false);
+/* ── Collection — proximity check every GPS update ── */
+function checkCollections(lat, lng){
+  Object.values(DOT_DB).forEach(d => {
+    if(store.eatenIds[d.id]) return;
+    if(haversineM(lat, lng, d.lat, d.lng) <= COLLECT_RADIUS_M){
+      collectDot(d.id, d.lat, d.lng, d.type, d.pts, d.label);
+    }
   });
 }
 
-function collectDot(id,lat,lng,type,pts,label,tapped){
-  if(store.eatenIds[id])return;
-  store.eatenIds[id]=true;
-  store.todayDots+=pts;store.weekDots+=pts;store.totalDots+=pts;
-  store.walkedToday=true;
-  store.collectedToday.unshift({pts,lat,lng,type,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
-  if(store.collectedToday.length>100)store.collectedToday.pop();
+/* ── restoreEatenDots — just refresh the GL layer ── */
+function restoreEatenDots(){ refreshDotLayer(); }
 
-  // Challenge progress
-  if(!store.challenges)store.challenges=freshChallenges();
-  const daily=store.challenges.find(c=>c.id==='c1');
-  if(daily&&!daily.done){daily.prog=store.todayDots;if(daily.prog>=daily.total){daily.done=true;showToast(ICONS.star,'Challenge complete! +300 pts');}}
-  if(type==='golden'){const gc=store.challenges.find(c=>c.id==='c4');if(gc&&!gc.done){gc.prog++;}}
+function collectDot(id, lat, lng, type, pts, label){
+  if(store.eatenIds[id]) return;
+  store.eatenIds[id] = true;
+  store.todayDots += pts; store.weekDots += pts; store.totalDots += pts;
+  store.walkedToday = true;
+  store.collectedToday.unshift({
+    pts, lat, lng, type,
+    time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
+  });
+  if(store.collectedToday.length > 100) store.collectedToday.pop();
+
+  // Challenges
+  if(!store.challenges) store.challenges = freshChallenges();
+  const daily = store.challenges.find(c => c.id === 'c1');
+  if(daily && !daily.done){
+    daily.prog = store.todayDots;
+    if(daily.prog >= daily.total){ daily.done = true; showToast(ICONS.star,'Challenge complete! +300 pts'); }
+  }
+  if(type === 'golden'){ const gc = store.challenges.find(c => c.id === 'c4'); if(gc && !gc.done) gc.prog++; }
 
   save();
-  const d=dotMarkers[id];if(d)d.el.className='dot-marker eaten';
-  const sp=lngLatToScreen(lng,lat);
-  if(sp){spawnBurst(sp.x,sp.y,type==='golden'?'#F0B429':type==='landmark'?'#fff':'#0EB8A0');spawnScorePop(sp.x,sp.y,pts,type);}
-  if(type==='golden')showToast(ICONS.star,`Golden dot — +${pts} pts! ⭐`);
-  else if(type==='landmark')showToast(ICONS.teal,`${label||'Landmark'} — +${pts} pts!`);
-  updateUI();updateChallenges();
+  refreshDotLayer(); // update GL layer — dot turns into eaten ring instantly
+
+  const sp = lngLatToScreen(lng, lat);
+  if(sp){
+    spawnBurst(sp.x, sp.y, type==='golden'?'#F0B429':type==='landmark'?'#ffffff':'#0EB8A0');
+    spawnScorePop(sp.x, sp.y, pts, type);
+  }
+  if(type === 'golden')    showToast(ICONS.star, `Golden dot — +${pts} pts! ⭐`);
+  else if(type === 'landmark') showToast(ICONS.teal, `${label||'Landmark'} — +${pts} pts!`);
+  updateUI(); updateChallenges();
   maybeNudge();
 }
 
@@ -1194,12 +1237,12 @@ function startWatch(){
 
       // Spawn new dots whenever player moves 150m from last spawn point
       // This ensures dots always appear ahead of the player
-      if(!startWatch._last)startWatch._last={lat,lng};
-      const movedM=haversineM(lat,lng,startWatch._last.lat,startWatch._last.lng);
-      if(movedM>150){
-        startWatch._last={lat,lng};
-        spawnDotsAround(lat,lng);
-        spawnLandmarkDots(lat,lng);
+      if(!startWatch._last) startWatch._last = {lat, lng};
+      const movedM = haversineM(lat, lng, startWatch._last.lat, startWatch._last.lng);
+      if(movedM > 120){
+        startWatch._last = {lat, lng};
+        spawnDotsAround(lat, lng); // async — waits for tiles, then spawns
+        spawnLandmarkDots(lat, lng);
       }
     },
     _=>setGPS('error','GPS lost'),
@@ -1268,10 +1311,11 @@ function updateUI(){
   }
 }
 
-function updateNearby(lat,lng){
-  const keys=Object.keys(dotMarkers);
-  const count=keys.filter(id=>!store.eatenIds[id]&&haversineM(lat,lng,dotMarkers[id].lat,dotMarkers[id].lng)<80).length;
-  document.getElementById('nearbyCount').textContent=count;
+function updateNearby(lat, lng){
+  const count = Object.values(DOT_DB).filter(d =>
+    !store.eatenIds[d.id] && haversineM(lat, lng, d.lat, d.lng) < 80
+  ).length;
+  document.getElementById('nearbyCount').textContent = count;
 }
 
 /* ── Leaderboard ── */
@@ -1452,8 +1496,9 @@ function scheduleMidnight(){
   const ms=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now;
   setTimeout(()=>{
     store=loadStore();updateUI();updateChallenges();updateRecap();
-    Object.values(dotMarkers).forEach(d=>d.el.classList.remove('eaten'));
-    store.eatenIds={};save();
+    // Reset eaten state and refresh GL layer
+    store.eatenIds = {}; save();
+    refreshDotLayer();
     showToast(ICONS.walk,'Midnight! Fresh dots are live');
     scheduleMidnight();
   },ms+1000);

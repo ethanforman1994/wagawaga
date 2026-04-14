@@ -154,33 +154,32 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 .sheet{
   position:absolute;bottom:0;left:0;right:0;
   height:calc(var(--safe-bottom) + 242px);
-  max-height:calc(var(--safe-bottom) + 242px);
   background:var(--glass);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
   border-top:1px solid var(--border2);border-radius:22px 22px 0 0;
   z-index:30;display:flex;flex-direction:column;
   box-shadow:0 -8px 48px rgba(0,0,0,.55);
-  transition:max-height 0.35s cubic-bezier(0.32,0.72,0,1);
-  overflow:hidden;
+  transition:height .35s cubic-bezier(.32,.72,0,1);
 }
-.handle{display:none} /* replaced by sheet-tab */
-.sheet-tab{
-  display:flex;flex-direction:column;align-items:center;
-  padding:8px 0 4px;
-  cursor:pointer;flex-shrink:0;
-  -webkit-tap-highlight-color:rgba(255,255,255,0.1);
-  user-select:none;
+.sheet.expanded{height:72vh}
+.sheet.collapsed{height:calc(var(--safe-bottom) + 52px)}
+.handle{
+  width:36px;height:4px;background:rgba(255,255,255,.18);border-radius:2px;
+  margin:10px auto 0;flex-shrink:0;cursor:pointer;
+  padding:10px 0;background-clip:content-box;
+  -webkit-background-clip:content-box;
+  position:relative;
 }
-.sheet-tab-bar{
-  width:40px;height:4px;
-  background:rgba(255,255,255,0.2);
-  border-radius:2px;margin-bottom:4px;
+.handle::before{
+  content:'';position:absolute;
+  top:50%;left:50%;transform:translate(-50%,-50%);
+  width:36px;height:4px;border-radius:2px;
+  background:rgba(255,255,255,.18);
 }
-.sheet-tab-chevron{
-  transition:transform 0.35s cubic-bezier(0.32,0.72,0,1);
+.handle-wrap{
+  width:100%;padding:6px 0 2px;cursor:pointer;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
 }
-.sheet.collapsed .sheet-tab-chevron{
-  transform:rotate(180deg);
-}
+.handle-bar{width:36px;height:4px;background:rgba(255,255,255,.18);border-radius:2px}
 .sheet-nav{display:flex;padding:10px 14px 0;gap:4px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
 .sheet-nav::-webkit-scrollbar{display:none}
 .snav{
@@ -347,7 +346,16 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 .perm-note{font-size:11px;color:var(--text3);line-height:1.5;max-width:260px}
 
 /* ── MARKERS ── */
-/* Dots are now rendered as Mapbox GL layers — no HTML marker CSS needed */
+.dot-marker{width:12px;height:12px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold-glow);cursor:pointer;border:1.5px solid rgba(255,255,255,0.2)}
+.dot-marker.bonus{width:18px;height:18px;background:transparent;border:2px solid var(--gold);box-shadow:0 0 12px var(--gold-glow);position:relative}
+.dot-marker.bonus::after{content:'';position:absolute;width:7px;height:7px;border-radius:50%;background:var(--gold);top:50%;left:50%;transform:translate(-50%,-50%)}
+.dot-marker.golden{width:20px;height:20px;background:transparent;border:2.5px solid var(--gold-light);box-shadow:0 0 16px rgba(255,209,102,0.7);position:relative;animation:golden-pulse 2s ease-in-out infinite}
+.dot-marker.golden::after{content:'';position:absolute;width:8px;height:8px;border-radius:50%;background:var(--gold-light);top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 8px rgba(255,209,102,0.8)}
+@keyframes golden-pulse{0%,100%{box-shadow:0 0 16px rgba(255,209,102,0.7)}50%{box-shadow:0 0 28px rgba(255,209,102,0.9)}}
+.dot-marker.landmark{width:24px;height:24px;background:transparent;border:2.5px solid var(--teal);box-shadow:0 0 18px var(--teal-glow,rgba(14,184,160,0.5));position:relative;animation:landmark-pulse 2.5s ease-in-out infinite}
+.dot-marker.landmark::after{content:'';position:absolute;width:9px;height:9px;border-radius:50%;background:var(--teal);top:50%;left:50%;transform:translate(-50%,-50%)}
+@keyframes landmark-pulse{0%,100%{box-shadow:0 0 18px rgba(14,184,160,0.5)}50%{box-shadow:0 0 32px rgba(14,184,160,0.8)}}
+.dot-marker.eaten{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.08);box-shadow:none;animation:none}
 
 .player-marker-el{width:40px;height:40px;display:flex;align-items:center;justify-content:center;position:relative}
 .player-ring{position:absolute;width:40px;height:40px;border-radius:50%;background:rgba(240,180,41,0.1);animation:player-pulse 2s infinite}
@@ -358,51 +366,7 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 .friend-pin{width:28px;height:28px;border-radius:50%;border:2.5px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-family:'Outfit',sans-serif;font-weight:800;font-size:10px;color:#fff;box-shadow:0 2px 12px rgba(0,0,0,0.3)}
 .friend-label{background:rgba(11,14,20,0.85);border-radius:6px;padding:2px 6px;font-size:9px;font-weight:600;color:rgba(238,240,246,0.8);white-space:nowrap}
 
-
-
-/* neighbourhood entry toast accent */
-.neighbourhood-pill{
-  display:inline-block;
-  background:var(--teal-dim);border:1px solid var(--teal-border);
-  border-radius:20px;padding:2px 8px;
-  font-size:10px;font-weight:700;color:var(--teal-light);
-  margin-left:6px;vertical-align:middle;
-}
-
-.sheet.collapsed{
-  max-height: 52px !important;
-}
-.sheet.collapsed .sheet-nav,
-.sheet.collapsed .sheet-content{
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.2s;
-}
-.sheet-tab{
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 8px 0 4px;
-  cursor: pointer;
-  flex-shrink: 0;
-  gap: 3px;
-  -webkit-tap-highlight-color: transparent;
-}
-.sheet-tab-bar{
-  width: 36px; height: 4px;
-  background: rgba(255,255,255,0.15);
-  border-radius: 2px;
-}
-.sheet-tab-chevron{
-  transition: transform 0.3s ease;
-}
-.sheet.collapsed .sheet-tab-chevron{
-  transform: rotate(180deg);
-}
-/* When sheet collapsed, float walk btn and fabs down */
-.walk-wrap, .fabs{
-  transition: bottom 0.35s cubic-bezier(0.32,0.72,0,1);
-}
+.ghost-trail-el{width:10px;height:10px;border-radius:50%;opacity:.35;pointer-events:none}
 </style>
 </head>
 <body>
@@ -497,23 +461,8 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
       <div class="fab" onclick="centerOnPlayer()">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
       </div>
-
-      </div>
-      <!-- Trail tooltip — shown briefly on tap -->
-      <div id="trailTooltip" style="
-        position:absolute;right:54px;bottom:0;
-        background:rgba(11,14,20,0.94);
-        backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-        border:1px solid var(--border2);border-radius:10px;
-        padding:7px 11px;white-space:nowrap;
-        font-size:11px;font-weight:600;color:var(--text);
-        box-shadow:0 4px 16px rgba(0,0,0,0.4);
-        opacity:0;pointer-events:none;
-        transition:opacity .2s;
-        display:flex;flex-direction:column;gap:2px;
-      ">
-        <span id="trailTooltipTitle" style="color:var(--teal)">Trail: OFF</span>
-        <span style="font-size:9px;font-weight:400;color:var(--text2)">Shows your walking path</span>
+      <div class="fab" onclick="toggleGhostTrail()">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" id="ghostIcon"><path d="M17 20H5a2 2 0 0 1-2-2V9a9 9 0 0 1 18 0v9a2 2 0 0 1-2 2z"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/></svg>
       </div>
     </div>
 
@@ -524,15 +473,9 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   <div class="toast" id="toast"><div class="toast-iw" id="toastIcon"></div><div id="toastMsg"></div></div>
 
   <!-- Sheet -->
-  <div class="sheet" id="sheet">
-    <!-- Tap this bar to hide/show the sheet -->
-    <div class="sheet-tab" onclick="toggleSheet()" id="sheetTab">
-      <div class="sheet-tab-bar"></div>
-      <svg class="sheet-tab-chevron" id="sheetChevron" width="18" height="18" 
-           viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" 
-           stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="18 15 12 9 6 15"/>
-      </svg>
+  <div class="sheet">
+    <div class="handle-wrap" onclick="toggleSheet()" id="handleWrap">
+      <div class="handle-bar"></div>
     </div>
     <div class="sheet-nav">
       <button class="snav on-gold" onclick="switchPanel('today',this,'gold')">
@@ -611,30 +554,24 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 /* ══════════════════════════════════════════════
    CONFIG
 ══════════════════════════════════════════════ */
-const MAPBOX_TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
-const COLLECT_RADIUS_M  = 18;
-const SPAWN_RADIUS_M    = 700;  // grid radius around player
-const DOT_SPACING_M     = 22;   // kept for reference — grid uses GRID_LAT/LNG
-const GOLDEN_CHANCE     = 0.06;   // ~6% of dots are golden (10pts)
-// Simplified to 2 types for beta: regular (1pt) and golden (10pt)
-// Landmark dots remain as special teal (variable pts)
+const MAPBOX_TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNWYydG9razNwczlueDgifQ.h4r5WT2jyr93yWdzuigUAA';
+const COLLECT_RADIUS_M  = 25; // bumped for better collection feel
+const SPAWN_RADIUS_M    = 600;
+const DOT_SPACING_M     = 22;
+const GOLDEN_CHANCE     = 0.035;
+const BONUS_CHANCE      = 0.07;
+const LANDMARK_CHANCE   = 0.012;
 
 /* ══════════════════════════════════════════════
    STORAGE
 ══════════════════════════════════════════════ */
 const TODAY = () => new Date().toISOString().split('T')[0];
-const SK = 'wagawaga'; // permanent key — never change this // v4: GL dots, sheet toggle, map follows player
+const SK = 'wagawaga_v2';
 
 function loadStore(){
   try{
     const s = JSON.parse(localStorage.getItem(SK)||'null');
     if(!s) return fresh();
-
-    // Migrate any missing fields from newer versions — never wipe data
-    const f = fresh();
-    Object.keys(f).forEach(k => { if(s[k] === undefined) s[k] = f[k]; });
-
-    // Daily reset — only resets today's data, preserves all-time totals
     if(s.lastDay !== TODAY()){
       const hadWalk = s.walkedToday;
       s.weekHistory = s.weekHistory||[];
@@ -645,10 +582,7 @@ function loadStore(){
       s.lastDay=TODAY(); s.walkedToday=false;
     }
     return s;
-  }catch(e){
-    // Only use fresh store if data is genuinely corrupt (not just missing fields)
-    return fresh();
-  }
+  }catch(e){return fresh();}
 }
 function fresh(){
   return{lastDay:TODAY(),todayDots:0,weekDots:0,totalDots:0,
@@ -717,25 +651,10 @@ const CH_ICONS={
 mapboxgl.accessToken = MAPBOX_TOKEN;
 let map=null, playerMarker=null;
 let playerLat=null, playerLng=null;
-let friendMarkers=[], ghostMarkers=[]; // dots now in DOT_DB + GL layer
+let dotMarkers={}, friendMarkers=[], ghostMarkers=[];
 let tracking=false, watchId=null;
-
-let dotIdCounter=0; // fallback counter only
-
-// Stable dot ID from GPS coordinates — same spot always same ID
-function dotIdFromCoords(lat, lng){
-  const gridLat = Math.round(lat * 4000); // ~25m precision grid
-  const gridLng = Math.round(lng * 4000);
-  return `dot_${gridLat}_${gridLng}`;
-} // fallback counter only
-
-// Generate a stable ID from GPS coordinates
-// Same location always gets the same ID — prevents re-eaten dots reappearing
-function dotIdFromCoords(lat, lng){
-  const gridLat = Math.round(lat * 4000); // ~25m grid
-  const gridLng = Math.round(lng * 4000);
-  return `dot_${gridLat}_${gridLng}`;
-}
+let ghostTrailOn=false;
+let dotIdCounter=0;
 
 /* NYC Landmarks for special teal dots */
 const NYC_LANDMARKS=[
@@ -759,17 +678,10 @@ function initMap(lat,lng){
   map.on('load',()=>{
     spawnPlayerMarker(lat,lng);
     spawnFriendMarkers(lat,lng);
-    addNeighbourhoodLayers();
-    initDotLayers();
-    // Build road cache from loaded tiles, then spawn grid dots
-    // Short delay ensures road tiles are rendered before query
-    setTimeout(()=>{
-      buildRoadCache();
-      spawnDotsAround(lat, lng);
-      spawnLandmarkDots(lat, lng);
-      restoreEatenDots();
-      restoreTodayTrail();
-    }, 1200);
+    // Wait a moment for road tiles to load before snapping dots
+    setTimeout(()=>spawnDotsAround(lat,lng),1200);
+    spawnLandmarkDots(lat,lng);
+    // Dots spawn after map is ready (handled by setTimeout in initMap)
     updateUI();
     updateLB('day');
     updateTerritories();
@@ -785,143 +697,16 @@ function spawnPlayerMarker(lat,lng){
   el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="playerPin">${store.initials}</div>`;
   playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 }
-function movePlayer(lat, lng){
-  playerLat = lat; playerLng = lng;
-  if(playerMarker) playerMarker.setLngLat([lng, lat]);
-  checkCollections(lat, lng);
-  updateNearby(lat, lng);
-
-  // Map follows the player smoothly while walking
-  if(tracking && map){
-    map.easeTo({
-      center: [lng, lat],
-      duration: 800,        // smooth pan, not jarring
-      easing: t => t,       // linear — feels natural while walking
-    });
+function movePlayer(lat,lng){
+  playerLat=lat;playerLng=lng;
+  if(playerMarker)playerMarker.setLngLat([lng,lat]);
+  checkCollections(lat,lng);
+  updateNearby(lat,lng);
+  if(ghostTrailOn)addGhostTrailPoint(lat,lng);
+  if(!movePlayer._geo||Date.now()-movePlayer._geo>10000){
+    movePlayer._geo=Date.now();
+    reverseGeocode(lat,lng);
   }
-
-  // Neighbourhood check every 8 seconds
-  if(!movePlayer._geo || Date.now() - movePlayer._geo > 8000){
-    movePlayer._geo = Date.now();
-    reverseGeocode(lat, lng);
-    checkNeighbourhood(lat, lng);
-  }
-}
-
-/* ── Restore today's session on map reload ── */
-function restoreEatenDots(){
-  refreshDotLayer(); // GL layer handles eaten state automatically
-}
-
-
-
-/* ── Neighbourhood overlays + entry detection ── */
-let currentNeighbourhood = null;
-
-const NYC_NEIGHBORHOODS = {"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"Upper West Side","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.9897,40.801],[-73.9581,40.801],[-73.9581,40.7751],[-73.9897,40.7751],[-73.9897,40.801]]]}},{"type":"Feature","properties":{"name":"Upper East Side","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.9581,40.7945],[-73.9397,40.7945],[-73.9397,40.764],[-73.9581,40.764],[-73.9581,40.7945]]]}},{"type":"Feature","properties":{"name":"Harlem","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.9897,40.814],[-73.928,40.814],[-73.928,40.801],[-73.9897,40.801],[-73.9897,40.814]]]}},{"type":"Feature","properties":{"name":"Midtown","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.9997,40.764],[-73.9397,40.764],[-73.9397,40.7484],[-73.9997,40.7484],[-73.9997,40.764]]]}},{"type":"Feature","properties":{"name":"Midtown East","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.977,40.758],[-73.9397,40.758],[-73.9397,40.742],[-73.977,40.742],[-73.977,40.758]]]}},{"type":"Feature","properties":{"name":"Hell's Kitchen","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.003,40.768],[-73.987,40.768],[-73.987,40.7484],[-74.003,40.7484],[-74.003,40.768]]]}},{"type":"Feature","properties":{"name":"Chelsea","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.006,40.7484],[-73.987,40.7484],[-73.987,40.738],[-74.006,40.738],[-74.006,40.7484]]]}},{"type":"Feature","properties":{"name":"Greenwich Village","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.006,40.738],[-73.987,40.738],[-73.987,40.726],[-74.006,40.726],[-74.006,40.738]]]}},{"type":"Feature","properties":{"name":"SoHo","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.006,40.726],[-73.994,40.726],[-73.994,40.719],[-74.006,40.719],[-74.006,40.726]]]}},{"type":"Feature","properties":{"name":"Tribeca","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.013,40.719],[-73.994,40.719],[-73.994,40.71],[-74.013,40.71],[-74.013,40.719]]]}},{"type":"Feature","properties":{"name":"Lower Manhattan","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.02,40.71],[-74.0,40.71],[-74.0,40.699],[-74.02,40.699],[-74.02,40.71]]]}},{"type":"Feature","properties":{"name":"Financial District","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-74.02,40.708],[-74.0,40.708],[-74.0,40.7],[-74.02,40.7],[-74.02,40.708]]]}},{"type":"Feature","properties":{"name":"Lower East Side","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.994,40.722],[-73.97,40.722],[-73.97,40.71],[-73.994,40.71],[-73.994,40.722]]]}},{"type":"Feature","properties":{"name":"East Village","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.994,40.731],[-73.97,40.731],[-73.97,40.722],[-73.994,40.722],[-73.994,40.731]]]}},{"type":"Feature","properties":{"name":"Gramercy","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.987,40.742],[-73.97,40.742],[-73.97,40.731],[-73.987,40.731],[-73.987,40.742]]]}},{"type":"Feature","properties":{"name":"Flatiron","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.994,40.742],[-73.987,40.742],[-73.987,40.736],[-73.994,40.736],[-73.994,40.742]]]}},{"type":"Feature","properties":{"name":"Murray Hill","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.987,40.75],[-73.97,40.75],[-73.97,40.742],[-73.987,40.742],[-73.987,40.75]]]}},{"type":"Feature","properties":{"name":"Morningside Heights","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.966,40.812],[-73.947,40.812],[-73.947,40.801],[-73.966,40.801],[-73.966,40.812]]]}},{"type":"Feature","properties":{"name":"Washington Heights","borough":"Manhattan"},"geometry":{"type":"Polygon","coordinates":[[[-73.943,40.85],[-73.928,40.85],[-73.928,40.83],[-73.943,40.83],[-73.943,40.85]]]}},{"type":"Feature","properties":{"name":"Williamsburg","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.97,40.72],[-73.935,40.72],[-73.935,40.699],[-73.97,40.699],[-73.97,40.72]]]}},{"type":"Feature","properties":{"name":"Park Slope","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.993,40.676],[-73.97,40.676],[-73.97,40.659],[-73.993,40.659],[-73.993,40.676]]]}},{"type":"Feature","properties":{"name":"Brooklyn Heights","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-74.005,40.701],[-73.99,40.701],[-73.99,40.692],[-74.005,40.692],[-74.005,40.701]]]}},{"type":"Feature","properties":{"name":"DUMBO","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.99,40.705],[-73.98,40.705],[-73.98,40.698],[-73.99,40.698],[-73.99,40.705]]]}},{"type":"Feature","properties":{"name":"Bushwick","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.935,40.706],[-73.9,40.706],[-73.9,40.688],[-73.935,40.688],[-73.935,40.706]]]}},{"type":"Feature","properties":{"name":"Greenpoint","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.97,40.732],[-73.935,40.732],[-73.935,40.72],[-73.97,40.72],[-73.97,40.732]]]}},{"type":"Feature","properties":{"name":"Crown Heights","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.97,40.672],[-73.935,40.672],[-73.935,40.656],[-73.97,40.656],[-73.97,40.672]]]}},{"type":"Feature","properties":{"name":"Flatbush","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-73.97,40.638],[-73.935,40.638],[-73.935,40.62],[-73.97,40.62],[-73.97,40.638]]]}},{"type":"Feature","properties":{"name":"Red Hook","borough":"Brooklyn"},"geometry":{"type":"Polygon","coordinates":[[[-74.015,40.676],[-73.99,40.676],[-73.99,40.66],[-74.015,40.66],[-74.015,40.676]]]}},{"type":"Feature","properties":{"name":"Astoria","borough":"Queens"},"geometry":{"type":"Polygon","coordinates":[[[-73.935,40.79],[-73.9,40.79],[-73.9,40.764],[-73.935,40.764],[-73.935,40.79]]]}},{"type":"Feature","properties":{"name":"Long Island City","borough":"Queens"},"geometry":{"type":"Polygon","coordinates":[[[-73.95,40.754],[-73.928,40.754],[-73.928,40.738],[-73.95,40.738],[-73.95,40.754]]]}},{"type":"Feature","properties":{"name":"Flushing","borough":"Queens"},"geometry":{"type":"Polygon","coordinates":[[[-73.835,40.77],[-73.8,40.77],[-73.8,40.75],[-73.835,40.75],[-73.835,40.77]]]}},{"type":"Feature","properties":{"name":"Jackson Heights","borough":"Queens"},"geometry":{"type":"Polygon","coordinates":[[[-73.9,40.76],[-73.87,40.76],[-73.87,40.745],[-73.9,40.745],[-73.9,40.76]]]}},{"type":"Feature","properties":{"name":"Sunnyside","borough":"Queens"},"geometry":{"type":"Polygon","coordinates":[[[-73.928,40.748],[-73.9,40.748],[-73.9,40.736],[-73.928,40.736],[-73.928,40.748]]]}},{"type":"Feature","properties":{"name":"South Bronx","borough":"Bronx"},"geometry":{"type":"Polygon","coordinates":[[[-73.928,40.83],[-73.89,40.83],[-73.89,40.81],[-73.928,40.81],[-73.928,40.83]]]}},{"type":"Feature","properties":{"name":"Fordham","borough":"Bronx"},"geometry":{"type":"Polygon","coordinates":[[[-73.91,40.862],[-73.88,40.862],[-73.88,40.844],[-73.91,40.844],[-73.91,40.862]]]}},{"type":"Feature","properties":{"name":"Riverdale","borough":"Bronx"},"geometry":{"type":"Polygon","coordinates":[[[-73.928,40.9],[-73.9,40.9],[-73.9,40.88],[-73.928,40.88],[-73.928,40.9]]]}},{"type":"Feature","properties":{"name":"St. George","borough":"Staten Island"},"geometry":{"type":"Polygon","coordinates":[[[-74.085,40.648],[-74.06,40.648],[-74.06,40.632],[-74.085,40.632],[-74.085,40.648]]]}},{"type":"Feature","properties":{"name":"Staten Island","borough":"Staten Island"},"geometry":{"type":"Polygon","coordinates":[[[-74.26,40.74],[-74.034,40.74],[-74.034,40.48],[-74.26,40.48],[-74.26,40.74]]]}}]};
-
-/* ── Neighbourhood boundary layers — hardcoded NYC polygons ── */
-function addNeighbourhoodLayers(){
-  if(!map || map.getSource('nb-source')) return;
-  try{
-    map.addSource('nb-source', {
-      type: 'geojson',
-      data: NYC_NEIGHBORHOODS
-    });
-
-    // Subtle alternating fill per borough
-    map.addLayer({
-      id: 'nb-fill',
-      type: 'fill',
-      source: 'nb-source',
-      paint: {
-        'fill-color': [
-          'match', ['get','borough'],
-          'Manhattan',    'rgba(240,180,41,0.04)',
-          'Brooklyn',     'rgba(14,184,160,0.04)',
-          'Queens',       'rgba(100,140,255,0.04)',
-          'Bronx',        'rgba(200,100,100,0.04)',
-          'Staten Island','rgba(150,200,100,0.04)',
-                          'rgba(255,255,255,0.02)'
-        ],
-        'fill-opacity': 1,
-      }
-    });
-
-    // Dashed border — clearly visible but not overwhelming
-    map.addLayer({
-      id: 'nb-border',
-      type: 'line',
-      source: 'nb-source',
-      paint: {
-        'line-color': 'rgba(255,255,255,0.22)',
-        'line-width': 1.5,
-        'line-dasharray': [4, 5],
-      }
-    });
-
-    // Neighbourhood name labels at zoom 14+
-    map.addLayer({
-      id: 'nb-labels',
-      type: 'symbol',
-      source: 'nb-source',
-      minzoom: 13,
-      layout: {
-        'text-field': ['get','name'],
-        'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'],
-        'text-size': 11,
-        'text-letter-spacing': 0.08,
-        'text-transform': 'uppercase',
-        'text-allow-overlap': false,
-        'text-ignore-placement': false,
-      },
-      paint: {
-        'text-color': 'rgba(255,255,255,0.35)',
-        'text-halo-color': 'rgba(0,0,0,0.4)',
-        'text-halo-width': 1,
-      }
-    });
-
-  } catch(e){ console.error('nb layers error:', e); }
-}
-
-function fetchNeighbourhoodGeoJSON(){ addNeighbourhoodLayers(); }
-
-function checkNeighbourhood(lat, lng){
-  if(!map || !map.isStyleLoaded()) return;
-  try{
-    const point = map.project([lng, lat]);
-    // Try all possible label layer names Mapbox uses across style versions
-    const labelLayers = [
-      'settlement-subdivision-label',
-      'place-neighbourhood-label',
-      'place-neighborhood-label',
-      'place-label',
-    ];
-    let name = null;
-    for(const layer of labelLayers){
-      try{
-        const feats = map.queryRenderedFeatures(
-          [[point.x-40, point.y-40],[point.x+40, point.y+40]],
-          {layers:[layer]}
-        );
-        const nb = feats.find(f =>
-          f.properties.class === 'neighbourhood' ||
-          f.properties.class === 'neighborhood' ||
-          f.properties.type  === 'neighbourhood' ||
-          (f.properties.name && f.properties.symbolrank && f.properties.symbolrank <= 16)
-        );
-        if(nb){ name = nb.properties.name || nb.properties.name_en; break; }
-      }catch(e){}
-    }
-    if(name && name !== currentNeighbourhood){
-      currentNeighbourhood = name;
-      document.getElementById('locLabel').textContent = name;
-      showToast(ICONS.map, `Entering ${name}`);
-      // Refresh boundary polygons when entering new area
-      if(!map.getSource('nb-source')) fetchNeighbourhoodGeoJSON();
-    }
-  } catch(e){}
 }
 
 /* ── Live simulated beta users ──
@@ -992,7 +777,39 @@ function moveBetaUsers(){
   });
 }
 
-
+/* ── Ghost trail ── */
+let ghostTrailPoints=[];
+function addGhostTrailPoint(lat,lng){
+  if(ghostTrailPoints.length>0){
+    const last=ghostTrailPoints[ghostTrailPoints.length-1];
+    if(haversineM(lat,lng,last.lat,last.lng)<5)return;
+  }
+  const el=document.createElement('div');
+  el.className='ghost-trail-el';
+  el.style.background='#F0B429';
+  const m=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
+  ghostTrailPoints.push({lat,lng,marker:m});
+  if(ghostTrailPoints.length>60){
+    const old=ghostTrailPoints.shift();
+    old.marker.remove();
+  }
+}
+function clearGhostTrail(){
+  ghostTrailPoints.forEach(p=>p.marker.remove());
+  ghostTrailPoints=[];
+}
+function toggleGhostTrail(){
+  ghostTrailOn=!ghostTrailOn;
+  const icon=document.getElementById('ghostIcon');
+  if(ghostTrailOn){
+    icon.style.stroke='var(--gold)';
+    showToast(ICONS.walk,'Ghost trail ON — your path is now visible');
+  } else {
+    icon.style.stroke='';
+    clearGhostTrail();
+    showToast(ICONS.warn,'Ghost trail OFF');
+  }
+}
 
 /* ── Dots ── */
 function haversineM(lat1,lng1,lat2,lng2){
@@ -1004,319 +821,193 @@ function offset(lat,lng,dLat,dLng){
   return{lat:lat+(dLat/111320),lng:lng+(dLng/(111320*Math.cos(lat*Math.PI/180)))};
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   FIXED GLOBAL GRID DOT SYSTEM
-   ─────────────────────────────────────────────────────────────
-   Dots sit on a mathematically fixed world grid.
-   Every coordinate always rounds to the same grid cell.
-   Same ID = same spot = never reappears after being eaten.
-   No tile querying, no road snapping, no randomness on spawn.
-   Works offline, loads instantly, fully deterministic.
-═══════════════════════════════════════════════════════════════ */
+/* ── Road-snapped dot spawning ──
+   Uses Mapbox Tilequery API to find actual road coordinates,
+   then places dots along those roads. Guaranteed to be on streets.
+   Falls back to grid-on-roads if API unavailable. */
+let spawnInProgress=false;
+let spawnedZones=new Set(); // track which zones we've already spawned
 
-// Master dot store — keyed by stable grid ID
-// { id: { id, lat, lng, type, pts, label } }
-const DOT_DB = {};
-
-let glSourceReady = false;
-let spawnInProgress = false;
-
-// Grid constants — fixed origin, fixed cell size
-// DOT_SPACING_M ≈ 22m → ~0.000198 degrees lat, ~0.000253 degrees lng (NYC)
-const GRID_LAT = 0.000198; // degrees per grid cell (lat)
-const GRID_LNG = 0.000253; // degrees per grid cell (lng)
-
-// Snap a lat/lng to the nearest grid cell centre
-function snapToGrid(lat, lng){
-  const gLat = Math.round(lat / GRID_LAT) * GRID_LAT;
-  const gLng = Math.round(lng / GRID_LNG) * GRID_LNG;
-  // Round to 6dp to avoid float noise
-  return {
-    lat: Math.round(gLat * 1e6) / 1e6,
-    lng: Math.round(gLng * 1e6) / 1e6,
-  };
-}
-
-// Stable dot ID from fixed grid position
-function dotIdFromCoords(lat, lng){
-  const g = snapToGrid(lat, lng);
-  // Use integer keys — multiply by 1e4 and floor for compact IDs
-  const iLat = Math.round(g.lat * 10000);
-  const iLng = Math.round(g.lng * 10000);
-  return `d_${iLat}_${iLng}`;
-}
-
-// Deterministic dot type from ID (no random on re-spawn)
-// Uses a hash of the ID string so type is always the same for a given cell
-function dotTypeFromId(id){
-  let h = 0;
-  for(let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
-  h = Math.abs(h);
-  if(h % 100 < 4)  return { type: 'golden',  pts: 10 }; // ~4% golden
-  return { type: 'regular', pts: 1 };
-}
-
-/* ── Init GL dot layers ── */
-function initDotLayers(){
-  if(!map || map.getSource('dots-src')) return;
-
-  map.addSource('dots-src', {
-    type: 'geojson',
-    data: buildDotGeoJSON(),
-  });
-
-  // Regular dots — teal, small
-  map.addLayer({
-    id: 'dots-regular',
-    type: 'circle',
-    source: 'dots-src',
-    filter: ['all', ['==',['get','type'],'regular'], ['==',['get','eaten'],false]],
-    paint: {
-      'circle-radius':  ['interpolate',['linear'],['zoom'], 13,3, 16,5, 19,7],
-      'circle-color':   '#0EB8A0',
-      'circle-opacity': 0.88,
-      'circle-stroke-width': 1,
-      'circle-stroke-color': 'rgba(255,255,255,0.18)',
-    }
-  });
-
-  // Golden dots — gold, larger, rare
-  map.addLayer({
-    id: 'dots-golden',
-    type: 'circle',
-    source: 'dots-src',
-    filter: ['all', ['==',['get','type'],'golden'], ['==',['get','eaten'],false]],
-    paint: {
-      'circle-radius':  ['interpolate',['linear'],['zoom'], 13,5, 16,8, 19,11],
-      'circle-color':   '#F0B429',
-      'circle-opacity': 1,
-      'circle-stroke-width': 2.5,
-      'circle-stroke-color': '#FFD166',
-    }
-  });
-
-  // Landmark dots — large white with teal ring
-  map.addLayer({
-    id: 'dots-landmark',
-    type: 'circle',
-    source: 'dots-src',
-    filter: ['all', ['==',['get','type'],'landmark'], ['==',['get','eaten'],false]],
-    paint: {
-      'circle-radius':  ['interpolate',['linear'],['zoom'], 13,7, 16,11, 19,15],
-      'circle-color':   '#ffffff',
-      'circle-opacity': 1,
-      'circle-stroke-width': 3,
-      'circle-stroke-color': '#0EB8A0',
-    }
-  });
-
-  // Eaten dots — faint ghost ring so you can see your coverage
-  map.addLayer({
-    id: 'dots-eaten',
-    type: 'circle',
-    source: 'dots-src',
-    filter: ['==',['get','eaten'],true],
-    paint: {
-      'circle-radius':  ['interpolate',['linear'],['zoom'], 13,2.5, 16,4, 19,6],
-      'circle-color':   'rgba(255,255,255,0)',
-      'circle-stroke-width': 1,
-      'circle-stroke-color': 'rgba(255,255,255,0.14)',
-    }
-  });
-
-  glSourceReady = true;
-}
-
-function buildDotGeoJSON(){
-  return {
-    type: 'FeatureCollection',
-    features: Object.values(DOT_DB).map(d => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [d.lng, d.lat] },
-      properties: {
-        id:    d.id,
-        type:  d.type,
-        pts:   d.pts,
-        label: d.label || '',
-        eaten: !!store.eatenIds[d.id],
-      }
-    }))
-  };
-}
-
-function refreshDotLayer(){
-  if(!glSourceReady || !map || !map.getSource('dots-src')) return;
-  map.getSource('dots-src').setData(buildDotGeoJSON());
-}
-
-/* ── Fixed grid dot spawn ──
-   Generates dots in a square grid around the player.
-   Every cell snaps to the global fixed grid — same position every time.
-   Deterministic type assignment — same cell always same type.
-   Called once on load and when player moves into a new area.
-════════════════════════════════════════════════════════════ */
-/* Road point cache — filled on first spawn, reused after.
-   Keys are "lat4_lng4" strings. Values are {lat, lng}.
-   Only road-adjacent positions are stored here. */
-const roadPointCache = new Set();
-let roadCacheReady = false;
-
-function buildRoadCache(){
-  if(roadCacheReady || !map || !map.isStyleLoaded()) return;
-
-  const allLayers = map.getStyle().layers.map(l => l.id);
-  const walkable  = allLayers.filter(id => {
-    const l = id.toLowerCase();
-    return l.includes('road') || l.includes('path') || l.includes('pedestrian') ||
-           l.includes('footway') || l.includes('walk') || l.includes('cycleway') ||
-           l.includes('steps') || l.includes('trail');
-  });
-  if(!walkable.length) return;
-
-  // Exclude motorways — not walkable
-  const EXCLUDE = new Set(['motorway','motorway_link','trunk','trunk_link','ferry']);
-
-  let features = [];
-  try{ features = map.queryRenderedFeatures(undefined, {layers: walkable}); }
-  catch(e){}
-
-  // Also query at grid of screen points for full coverage
-  const W = map.getCanvas().width/(window.devicePixelRatio||1);
-  const H = map.getCanvas().height/(window.devicePixelRatio||1);
-  [[W*.25,H*.25],[W*.75,H*.25],[W*.25,H*.75],[W*.75,H*.75],
-   [W*.5,H*.5],[W*.5,H*.1],[W*.5,H*.9],[W*.1,H*.5],[W*.9,H*.5]].forEach(pt=>{
-    try{
-      map.queryRenderedFeatures(pt,{layers:walkable}).forEach(f=>{
-        if(!features.find(x=>x.id===f.id)) features.push(f);
-      });
-    }catch(e){}
-  });
-
-  features.forEach(f=>{
-    if(!f.geometry) return;
-    const cls = (f.properties?.class||f.properties?.type||'').toLowerCase();
-    if(EXCLUDE.has(cls)) return;
-    const lines = f.geometry.type==='LineString' ? [f.geometry.coordinates]
-                : f.geometry.type==='MultiLineString' ? f.geometry.coordinates : [];
-    lines.forEach(coords=>{
-      coords.forEach(([lng,lat])=>{
-        // Snap to grid and store
-        const g = snapToGrid(lat, lng);
-        roadPointCache.add(`${g.lat}_${g.lng}`);
-      });
-    });
-  });
-
-  roadCacheReady = roadPointCache.size > 0;
-}
-
-function isNearRoad(lat, lng){
-  if(!roadCacheReady) return true; // if no cache yet, allow all (fallback)
-  // Check if any cached road point is within 25m
-  const g = snapToGrid(lat, lng);
-  // Check this cell and immediate neighbours
-  for(let dlat=-1; dlat<=1; dlat++){
-    for(let dlng=-1; dlng<=1; dlng++){
-      const tLat = Math.round((g.lat + dlat*GRID_LAT)*1e6)/1e6;
-      const tLng = Math.round((g.lng + dlng*GRID_LNG)*1e6)/1e6;
-      if(roadPointCache.has(`${tLat}_${tLng}`)) return true;
-    }
+async function spawnDotsAround(lat,lng){
+  if(!map||spawnInProgress)return;
+  // Zone key — only respawn if we've moved significantly
+  const zoneKey=`${Math.round(lat*200)}_${Math.round(lng*200)}`;
+  if(spawnedZones.has(zoneKey))return;
+  spawnedZones.add(zoneKey);
+  spawnInProgress=true;
+  try{
+    await spawnDotsOnRoads(lat,lng);
+  }catch(e){
+    console.log('Road API failed, using fallback:',e);
+    spawnDotsGrid(lat,lng);
   }
-  return false;
+  spawnInProgress=false;
+  updateNearby(lat,lng);
 }
 
-function spawnDotsAround(lat, lng){
-  if(!map || !glSourceReady) return;
+async function spawnDotsOnRoads(lat,lng){
+  // Use Mapbox Tilequery API — returns actual road/path features at real coordinates
+  // This is the reliable way: ask Mapbox "what roads are here?" instead of parsing tiles
+  const radius=Math.min(SPAWN_RADIUS_M,500); // max 500m per tilequery request
+  const url=`https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${lng},${lat}.json?radius=${radius}&limit=50&dedupe&geometry=linestring&layers=road&access_token=${MAPBOX_TOKEN}`;
+  
+  const resp=await fetch(url);
+  if(!resp.ok)throw new Error('Tilequery failed: '+resp.status);
+  const data=await resp.json();
+  
+  if(!data.features||data.features.length<2){
+    throw new Error('No road features returned');
+  }
 
-  // Build road cache from current tile data if not done yet
-  buildRoadCache();
+  const placed=new Set();
+  let count=0;
 
-  const latSteps = Math.ceil(SPAWN_RADIUS_M / (GRID_LAT * 111320));
-  const lngSteps = Math.ceil(SPAWN_RADIUS_M / (GRID_LNG * 111320));
-  const origin   = snapToGrid(lat, lng);
+  // For each road feature returned, interpolate dot positions along it
+  data.features.forEach(feature=>{
+    if(count>200)return;
+    const geom=feature.geometry;
+    if(!geom)return;
 
-  let added = 0;
-  for(let dlat = -latSteps; dlat <= latSteps; dlat++){
-    for(let dlng = -lngSteps; dlng <= lngSteps; dlng++){
-      const cLat = Math.round((origin.lat + dlat*GRID_LAT)*1e6)/1e6;
-      const cLng = Math.round((origin.lng + dlng*GRID_LNG)*1e6)/1e6;
+    // Tilequery returns the nearest point on the road, not the full line
+    // So we place a dot at each returned coordinate
+    if(geom.type==='Point'){
+      const[fLng,fLat]=geom.coordinates;
+      const dist=haversineM(lat,lng,fLat,fLng);
+      if(dist>SPAWN_RADIUS_M)return;
+      const key=`${Math.round(fLat*4000)}_${Math.round(fLng*4000)}`;
+      if(placed.has(key))return;
+      placed.add(key);
+      const id=`rdot_${Math.round(fLat*4000)}_${Math.round(fLng*4000)}`;
+      if(store.eatenIds[id]||dotMarkers[id])return;
+      const golden=Math.random()<GOLDEN_CHANCE;
+      const bonus=!golden&&Math.random()<BONUS_CHANCE;
+      const type=golden?'golden':bonus?'bonus':'regular';
+      const pts=golden?25:bonus?5:1;
+      placeDot(id,fLat,fLng,type,pts);
+      count++;
+    }
+  });
 
-      if(haversineM(lat, lng, cLat, cLng) > SPAWN_RADIUS_M) continue;
-
-      // Only place dots near walkable roads
-      if(!isNearRoad(cLat, cLng)) continue;
-
-      const id = dotIdFromCoords(cLat, cLng);
-      if(DOT_DB[id]) continue;
-
-      const { type, pts } = dotTypeFromId(id);
-      DOT_DB[id] = { id, lat:cLat, lng:cLng, type, pts, label:null };
-      added++;
+  // Tilequery only returns 50 features max — supplement with grid-on-roads
+  // by fetching multiple points in a pattern around the player
+  const angles=[0,45,90,135,180,225,270,315];
+  const radii=[80,160,250,350,450];
+  
+  const extraFetches=[];
+  for(const dist of radii){
+    for(const angle of angles){
+      const rad=angle*Math.PI/180;
+      const pLat=lat+Math.sin(rad)*dist/111320;
+      const pLng=lng+Math.cos(rad)*dist/(111320*Math.cos(lat*Math.PI/180));
+      extraFetches.push({lat:pLat,lng:pLng});
     }
   }
 
-  if(added > 0) refreshDotLayer();
-  updateNearby(lat, lng);
-}
-
-function spawnLandmarkDots(lat, lng){
-  NYC_LANDMARKS.forEach((lm, i) => {
-    const id = `landmark_${i}`;
-    if(DOT_DB[id]) return;
-    if(haversineM(lat, lng, lm.lat, lm.lng) > 6000) return;
-    DOT_DB[id] = { id, lat: lm.lat, lng: lm.lng, type: 'landmark', pts: lm.pts, label: lm.name };
-  });
-  refreshDotLayer();
-}
-
-function registerDot(id, lat, lng, type, pts, label){
-  DOT_DB[id] = { id, lat, lng, type, pts, label: label || null };
-}
-
-/* ── Collection — proximity check every GPS update ── */
-function checkCollections(lat, lng){
-  Object.values(DOT_DB).forEach(d => {
-    if(store.eatenIds[d.id]) return;
-    if(haversineM(lat, lng, d.lat, d.lng) <= COLLECT_RADIUS_M){
-      collectDot(d.id, d.lat, d.lng, d.type, d.pts, d.label);
-    }
-  });
-}
-
-/* ── restoreEatenDots — just refresh the GL layer ── */
-function restoreEatenDots(){ refreshDotLayer(); }
-
-function collectDot(id, lat, lng, type, pts, label){
-  if(store.eatenIds[id]) return;
-  store.eatenIds[id] = true;
-  store.todayDots += pts; store.weekDots += pts; store.totalDots += pts;
-  store.walkedToday = true;
-  store.collectedToday.unshift({
-    pts, lat, lng, type,
-    time: new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})
-  });
-  if(store.collectedToday.length > 100) store.collectedToday.pop();
-
-  // Challenges
-  if(!store.challenges) store.challenges = freshChallenges();
-  const daily = store.challenges.find(c => c.id === 'c1');
-  if(daily && !daily.done){
-    daily.prog = store.todayDots;
-    if(daily.prog >= daily.total){ daily.done = true; showToast(ICONS.star,'Challenge complete! +300 pts'); }
+  // Batch fetch — do 8 at a time with small delays to respect rate limits
+  for(let i=0;i<Math.min(extraFetches.length,16);i+=8){
+    const batch=extraFetches.slice(i,i+8);
+    await Promise.all(batch.map(async p=>{
+      try{
+        const u=`https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${p.lng},${p.lat}.json?radius=40&limit=3&dedupe&geometry=linestring&layers=road&access_token=${MAPBOX_TOKEN}`;
+        const r=await fetch(u);
+        if(!r.ok)return;
+        const d=await r.json();
+        if(!d.features)return;
+        d.features.forEach(f=>{
+          if(f.geometry?.type!=='Point')return;
+          const[fLng,fLat]=f.geometry.coordinates;
+          const distFromPlayer=haversineM(lat,lng,fLat,fLng);
+          if(distFromPlayer>SPAWN_RADIUS_M)return;
+          const key=`${Math.round(fLat*4000)}_${Math.round(fLng*4000)}`;
+          if(placed.has(key))return;
+          placed.add(key);
+          const id=`rdot_${Math.round(fLat*4000)}_${Math.round(fLng*4000)}`;
+          if(store.eatenIds[id]||dotMarkers[id])return;
+          const golden=Math.random()<GOLDEN_CHANCE;
+          const bonus=!golden&&Math.random()<BONUS_CHANCE;
+          const type=golden?'golden':bonus?'bonus':'regular';
+          const pts=golden?25:bonus?5:1;
+          placeDot(id,fLat,fLng,type,pts);
+          count++;
+        });
+      }catch(e){}
+    }));
+    await new Promise(r=>setTimeout(r,120)); // small delay between batches
   }
-  if(type === 'golden'){ const gc = store.challenges.find(c => c.id === 'c4'); if(gc && !gc.done) gc.prog++; }
+
+  if(count<10)spawnDotsGrid(lat,lng);
+}
+
+function spawnDotsGrid(lat,lng){
+  // Fallback: grid placement (original method)
+  const steps=Math.ceil(SPAWN_RADIUS_M/DOT_SPACING_M);
+  for(let dx=-steps;dx<=steps;dx++){
+    for(let dy=-steps;dy<=steps;dy++){
+      const dxM=dx*DOT_SPACING_M,dyM=dy*DOT_SPACING_M;
+      if(Math.sqrt(dxM*dxM+dyM*dyM)>SPAWN_RADIUS_M)continue;
+      const jx=(Math.random()-.5)*DOT_SPACING_M*.6;
+      const jy=(Math.random()-.5)*DOT_SPACING_M*.6;
+      const pos=offset(lat,lng,dyM+jy,dxM+jx);
+      const id=`dot_${dotIdCounter++}`;
+      if(store.eatenIds[id]||dotMarkers[id])continue;
+      const golden=Math.random()<GOLDEN_CHANCE;
+      const bonus=!golden&&Math.random()<BONUS_CHANCE;
+      const type=golden?'golden':bonus?'bonus':'regular';
+      const pts=golden?25:bonus?5:1;
+      placeDot(id,pos.lat,pos.lng,type,pts);
+    }
+  }
+}
+
+function spawnLandmarkDots(lat,lng){
+  NYC_LANDMARKS.forEach((lm,i)=>{
+    const id=`landmark_${i}`;
+    if(store.eatenIds[id]||dotMarkers[id])return;
+    // Only show if within 5km
+    if(haversineM(lat,lng,lm.lat,lm.lng)>5000)return;
+    placeDot(id,lm.lat,lm.lng,'landmark',lm.pts,lm.name);
+  });
+}
+
+function placeDot(id,lat,lng,type,pts,label){
+  const el=document.createElement('div');
+  el.className=`dot-marker ${type==='golden'?'golden':type==='bonus'?'bonus':type==='landmark'?'landmark':''}`;
+  if(store.eatenIds[id])el.className='dot-marker eaten';
+  // tap-to-collect disabled — walk to collect only
+  const m=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
+  dotMarkers[id]={marker:m,lat,lng,type,pts,label,el};
+}
+
+function checkCollections(lat,lng){
+  Object.entries(dotMarkers).forEach(([id,d])=>{
+    if(store.eatenIds[id])return;
+    if(haversineM(lat,lng,d.lat,d.lng)<=COLLECT_RADIUS_M)
+      collectDot(id,d.lat,d.lng,d.type,d.pts,d.label,false);
+  });
+}
+
+function collectDot(id,lat,lng,type,pts,label,tapped){
+  if(store.eatenIds[id])return;
+  store.eatenIds[id]=true;
+  store.todayDots+=pts;store.weekDots+=pts;store.totalDots+=pts;
+  store.walkedToday=true;
+  store.collectedToday.unshift({pts,lat,lng,type,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
+  if(store.collectedToday.length>100)store.collectedToday.pop();
+
+  // Challenge progress
+  if(!store.challenges)store.challenges=freshChallenges();
+  const daily=store.challenges.find(c=>c.id==='c1');
+  if(daily&&!daily.done){daily.prog=store.todayDots;if(daily.prog>=daily.total){daily.done=true;showToast(ICONS.star,'Challenge complete! +300 pts');}}
+  if(type==='golden'){const gc=store.challenges.find(c=>c.id==='c4');if(gc&&!gc.done){gc.prog++;}}
 
   save();
-  refreshDotLayer(); // update GL layer — dot turns into eaten ring instantly
-
-  const sp = lngLatToScreen(lng, lat);
-  if(sp){
-    spawnBurst(sp.x, sp.y, type==='golden'?'#F0B429':type==='landmark'?'#0EB8A0':'#0EB8A0');
-    spawnScorePop(sp.x, sp.y, pts, type);
-  }
-  if(type === 'golden')    showToast(ICONS.star, `Golden dot — +${pts} pts! ⭐`);
-  else if(type === 'landmark') showToast(ICONS.teal, `${label||'Landmark'} — +${pts} pts!`);
-  updateUI(); updateChallenges();
+  const d=dotMarkers[id];if(d)d.el.className='dot-marker eaten';
+  const sp=lngLatToScreen(lng,lat);
+  if(sp){spawnBurst(sp.x,sp.y,type==='golden'?'#FFD166':type==='landmark'?'#0EB8A0':'#F0B429');spawnScorePop(sp.x,sp.y,pts,type);}
+  if(type==='golden')showToast(ICONS.star,`Golden dot — +${pts} pts!`);
+  else if(type==='landmark')showToast(ICONS.teal,`${label||'Landmark'} — +${pts} pts!`);
+  updateUI();updateChallenges();
+  // Competitive nudges
   maybeNudge();
 }
 
@@ -1377,19 +1068,10 @@ function startWatch(){
       const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
       setGPS('active',`±${Math.round(acc)}m`);
       movePlayer(lat,lng);
-
-      // Expand grid as player walks into new areas (every 150m)
-      if(!startWatch._last) startWatch._last = {lat, lng};
-      const movedM = haversineM(lat, lng, startWatch._last.lat, startWatch._last.lng);
-      if(movedM > 150){
-        startWatch._last = {lat, lng};
-        // Rebuild road cache for new area then spawn
-        roadCacheReady = false;
-        setTimeout(()=>{
-          buildRoadCache();
-          spawnDotsAround(lat, lng);
-          spawnLandmarkDots(lat, lng);
-        }, 800); // short wait for new tiles to render
+      if(!startWatch._last)startWatch._last={lat,lng};
+      if(haversineM(lat,lng,startWatch._last.lat,startWatch._last.lng)>DOT_SPACING_M*8){
+        spawnDotsAround(lat,lng);spawnLandmarkDots(lat,lng);
+        startWatch._last={lat,lng};
       }
     },
     _=>setGPS('error','GPS lost'),
@@ -1435,12 +1117,16 @@ function centerOnPlayer(){if(map&&playerLng!==null)map.flyTo({center:[playerLng,
 function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n)}
 
 function updateUI(){
-  document.getElementById('todayScore').textContent=fmt(store.todayDots);
-  document.getElementById('weekScore').textContent=fmt(store.weekDots);
-  document.getElementById('totalScore').textContent=fmt(store.totalDots);
-  document.getElementById('tallyBig').textContent=store.todayDots;
-  document.getElementById('streakVal').textContent=store.streak;
-  document.getElementById('streakBig').textContent=store.streak;
+  // Force number display — never show stale values
+  const td=store.todayDots||0;
+  const wd=store.weekDots||0;
+  const tot=store.totalDots||0;
+  document.getElementById('todayScore').textContent=fmt(td);
+  document.getElementById('weekScore').textContent=fmt(wd);
+  document.getElementById('totalScore').textContent=fmt(tot);
+  document.getElementById('tallyBig').textContent=td;
+  document.getElementById('streakVal').textContent=store.streak||0;
+  document.getElementById('streakBig').textContent=store.streak||0;
   const pin=document.getElementById('playerPin');if(pin)pin.textContent=store.initials||'?';
   document.getElementById('avBtn').textContent=store.initials||'?';
   // Challenge banner
@@ -1458,11 +1144,10 @@ function updateUI(){
   }
 }
 
-function updateNearby(lat, lng){
-  const count = Object.values(DOT_DB).filter(d =>
-    !store.eatenIds[d.id] && haversineM(lat, lng, d.lat, d.lng) < 80
-  ).length;
-  document.getElementById('nearbyCount').textContent = count;
+function updateNearby(lat,lng){
+  const keys=Object.keys(dotMarkers);
+  const count=keys.filter(id=>!store.eatenIds[id]&&haversineM(lat,lng,dotMarkers[id].lat,dotMarkers[id].lng)<80).length;
+  document.getElementById('nearbyCount').textContent=count;
 }
 
 /* ── Leaderboard ── */
@@ -1623,7 +1308,7 @@ function spawnBurst(x,y,color='#F0B429'){
 function spawnScorePop(x,y,pts,type){
   const bc=document.getElementById('burstContainer');
   const pop=document.createElement('div');pop.className='score-pop';
-  const c=type==='golden'?'#F0B429':type==='landmark'?'#0EB8A0':'#0EB8A0';
+  const c=type==='golden'?'#FFD166':type==='landmark'||type==='bonus'?'#0EB8A0':'#F0B429';
   pop.style.cssText=`left:${x+8}px;top:${y-10}px;color:${c};font-size:${pts>=10?17:pts>=5?15:13}px;text-shadow:0 2px 12px ${c}66`;
   pop.textContent=`+${pts}`;bc.appendChild(pop);setTimeout(()=>pop.remove(),800);
 }
@@ -1643,33 +1328,45 @@ function scheduleMidnight(){
   const ms=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now;
   setTimeout(()=>{
     store=loadStore();updateUI();updateChallenges();updateRecap();
-    // Reset eaten state and refresh GL layer
-    store.eatenIds = {}; save();
-    refreshDotLayer();
+    Object.values(dotMarkers).forEach(d=>d.el.classList.remove('eaten'));
+    store.eatenIds={};save();
     showToast(ICONS.walk,'Midnight! Fresh dots are live');
     scheduleMidnight();
   },ms+1000);
 }
 
-/* ── Sheet toggle ── */
-let sheetOpen = true;
+/* ── Sheet expand/collapse ── */
+let sheetState='default'; // default | expanded | collapsed
 function toggleSheet(){
-  sheetOpen = !sheetOpen;
-  const sheet    = document.getElementById('sheet');
-  const walkWrap = document.querySelector('.walk-wrap');
-  const fabs     = document.querySelector('.fabs');
-  const chevron  = document.getElementById('sheetChevron');
-
-  if(sheetOpen){
+  const sheet=document.querySelector('.sheet');
+  if(sheetState==='default'||sheetState==='collapsed'){
     sheet.classList.remove('collapsed');
-    walkWrap.style.bottom = '';
-    fabs.style.bottom     = '';
-    if(chevron) chevron.style.transform = '';
+    sheet.classList.add('expanded');
+    sheetState='expanded';
+    // Resize map
+    if(map)setTimeout(()=>map.resize(),360);
   } else {
+    sheet.classList.remove('expanded');
     sheet.classList.add('collapsed');
-    walkWrap.style.bottom = 'calc(var(--safe-bottom) + 66px)';
-    fabs.style.bottom     = 'calc(var(--safe-bottom) + 66px)';
-    if(chevron) chevron.style.transform = 'rotate(180deg)';
+    sheetState='collapsed';
+    if(map)setTimeout(()=>map.resize(),360);
+  }
+}
+
+/* ── Sheet expand/collapse ── */
+let sheetState='default';
+function toggleSheet(){
+  const sheet=document.querySelector('.sheet');
+  if(sheetState==='default'||sheetState==='collapsed'){
+    sheet.classList.remove('collapsed');
+    sheet.classList.add('expanded');
+    sheetState='expanded';
+    if(map)setTimeout(()=>map.resize(),360);
+  } else {
+    sheet.classList.remove('expanded');
+    sheet.classList.add('collapsed');
+    sheetState='collapsed';
+    if(map)setTimeout(()=>map.resize(),360);
   }
 }
 

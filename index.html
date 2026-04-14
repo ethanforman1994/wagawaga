@@ -55,6 +55,23 @@ function setupRecaptcha(){
     size: 'invisible',
     callback: ()=>{}
   });
+  recaptchaVerifier.render();
+}
+
+function setPhoneState(state){
+  document.getElementById('phoneStep').style.display   = state==='phone'                          ? 'flex' : 'none';
+  document.getElementById('codeStep').style.display    = state==='code'                           ? 'flex' : 'none';
+  document.getElementById('sendingStep').style.display = (state==='sending'||state==='verifying') ? 'flex' : 'none';
+  document.getElementById('sendingLbl').textContent    = state==='verifying' ? 'Verifying…' : 'Sending code…';
+  document.getElementById('phoneError').style.display  = 'none';
+}
+window._setPhoneState = setPhoneState;
+
+function showPhoneError(msg){
+  setPhoneState('phone');
+  const el = document.getElementById('phoneError');
+  el.textContent = msg;
+  el.style.display = 'block';
 }
 
 // ── Send SMS code ────────────────────────────────────────────
@@ -62,11 +79,11 @@ window._sendCode = async function(){
   const raw = document.getElementById('phoneInput').value.trim();
   if(!raw){ showPhoneError('Please enter your phone number.'); return; }
 
-  // Format: ensure +1 for US numbers
+  // Format to E.164 — handle 10 or 11 digit US numbers
   let phone = raw.replace(/\D/g,'');
-  if(phone.length===10) phone='+1'+phone;
-  else if(phone.length===11&&phone.startsWith('1')) phone='+'+phone;
-  else phone='+'+phone;
+  if(phone.length===10)                        phone = '+1' + phone;
+  else if(phone.length===11&&phone[0]==='1')   phone = '+'  + phone;
+  else                                         phone = '+'  + phone;
 
   setPhoneState('sending');
   try{
@@ -74,12 +91,12 @@ window._sendCode = async function(){
     confirmationResult = await signInWithPhoneNumber(auth, phone, recaptchaVerifier);
     setPhoneState('code');
   }catch(e){
-    console.warn('SMS error',e);
-    recaptchaVerifier=null; // reset so it can retry
-    if(e.code==='auth/invalid-phone-number') showPhoneError('Invalid phone number. Try again with your 10-digit number.');
-    else if(e.code==='auth/too-many-requests') showPhoneError('Too many attempts. Please wait a few minutes.');
-    else showPhoneError('Could not send code. Check your number and try again.');
-    setPhoneState('phone');
+    console.warn('SMS error', e.code, e.message);
+    recaptchaVerifier = null; // reset so reCAPTCHA can retry
+    if(e.code==='auth/invalid-phone-number')  showPhoneError('Invalid number. Enter your 10-digit US number.');
+    else if(e.code==='auth/too-many-requests') showPhoneError('Too many attempts. Wait a few minutes and try again.');
+    else if(e.code==='auth/captcha-check-failed') showPhoneError('Security check failed. Please refresh and try again.');
+    else showPhoneError(`Error: ${e.message}`);
   }
 };
 
@@ -90,29 +107,15 @@ window._verifyCode = async function(){
   setPhoneState('verifying');
   try{
     await confirmationResult.confirm(code);
-    // onAuthStateChanged fires and handles the rest
+    // onAuthStateChanged fires automatically and handles the rest
   }catch(e){
-    console.warn('Code error',e);
-    if(e.code==='auth/invalid-verification-code') showPhoneError('Wrong code. Please try again.');
-    else if(e.code==='auth/code-expired') showPhoneError('Code expired. Please request a new one.');
-    else showPhoneError('Verification failed. Please try again.');
+    console.warn('Code error', e.code, e.message);
+    if(e.code==='auth/invalid-verification-code') showPhoneError('Wrong code — please try again.');
+    else if(e.code==='auth/code-expired')          showPhoneError('Code expired. Go back and request a new one.');
+    else showPhoneError(`Error: ${e.message}`);
     setPhoneState('code');
   }
 };
-
-function setPhoneState(state){
-  document.getElementById('phoneStep').style.display  = state==='phone'     ? 'flex' : 'none';
-  document.getElementById('codeStep').style.display   = state==='code'      ? 'flex' : 'none';
-  document.getElementById('sendingStep').style.display= (state==='sending'||state==='verifying') ? 'flex' : 'none';
-  document.getElementById('sendingLbl').textContent   = state==='verifying' ? 'Verifying…' : 'Sending code…';
-  document.getElementById('phoneError').style.display = 'none';
-}
-window._setPhoneState = setPhoneState;
-
-function showPhoneError(msg){
-  const el=document.getElementById('phoneError');
-  el.textContent=msg;el.style.display='block';
-}
 
 // ── Load cloud profile ───────────────────────────────────────
 async function loadCloudProfile(uid){
@@ -432,7 +435,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
     <div class="phone-step" id="phoneStep">
       <div class="perm-sub" style="margin-bottom:4px">Enter your phone number to join the leaderboard and keep your progress.</div>
       <input id="phoneInput" type="tel" inputmode="tel" placeholder="(555) 555-5555" autocomplete="tel"/>
-      <div id="phoneError"></div>
       <button class="perm-btn" onclick="window._sendCode()">Send Code</button>
       <div class="perm-note">US numbers only for now. Standard SMS rates apply.</div>
     </div>
@@ -441,7 +443,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
     <div class="phone-step" id="codeStep" style="display:none">
       <div class="perm-sub" style="margin-bottom:4px">Enter the 6-digit code we just texted you.</div>
       <input id="codeInput" type="number" inputmode="numeric" placeholder="123456" maxlength="6" autocomplete="one-time-code"/>
-      <div id="phoneError"></div>
       <button class="perm-btn" onclick="window._verifyCode()">Verify</button>
       <button class="resend-btn" onclick="window._setPhoneState('phone')">Wrong number? Go back</button>
     </div>
@@ -451,6 +452,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
       <div style="font-size:28px">📱</div>
       <div class="perm-sub" id="sendingLbl">Sending code…</div>
     </div>
+
+    <!-- Single error element -->
+    <div id="phoneError" style="font-size:12px;color:var(--red);text-align:center;display:none;max-width:260px;line-height:1.4"></div>
 
   </div>
 

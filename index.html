@@ -12,6 +12,121 @@
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, doc, setDoc, getDoc, collection, query, orderBy, limit, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDb0zMOhz9EXmODWjLQPbtKIQ1agiXuwMA",
+  authDomain: "wagawaga-walk.firebaseapp.com",
+  projectId: "wagawaga-walk",
+  storageBucket: "wagawaga-walk.firebasestorage.app",
+  messagingSenderId: "60558352314",
+  appId: "1:60558352314:web:5cdb40357d81d4bfc60783",
+  measurementId: "G-BFYBV5K1XK"
+};
+
+const fbApp  = initializeApp(firebaseConfig);
+const auth   = getAuth(fbApp);
+const db     = getFirestore(fbApp);
+
+let fbUid = null;
+
+// ── Sign in anonymously ──────────────────────────────────────
+signInAnonymously(auth).catch(e=>console.warn('Firebase auth failed',e));
+
+onAuthStateChanged(auth, user=>{
+  if(!user) return;
+  fbUid = user.uid;
+  window._fbUid = fbUid;
+
+  // Load this user's cloud profile and merge with localStorage
+  loadCloudProfile(fbUid);
+
+  // Subscribe to live leaderboard updates
+  subscribeLeaderboard();
+});
+
+// ── Load cloud profile ───────────────────────────────────────
+async function loadCloudProfile(uid){
+  try{
+    const snap = await getDoc(doc(db,'users',uid));
+    if(snap.exists()){
+      const d = snap.data();
+      // Cloud is source of truth for scores — merge in
+      if(d.todayDate === window._toDay()){
+        window._S.todayDots  = d.todayDots  || window._S.todayDots;
+      }
+      window._S.weekDots   = d.weekDots   || window._S.weekDots;
+      window._S.allDots    = d.allDots    || window._S.allDots;
+      window._S.streak     = d.streak     || window._S.streak;
+      window._S.displayName = d.displayName || window._S.displayName || '';
+      window._save();
+      window._updateUI();
+      window._updatePlayerPin();
+    } else {
+      // First time — prompt for display name then create profile
+      promptDisplayName(uid);
+    }
+  }catch(e){ console.warn('loadCloudProfile error',e); }
+}
+
+// ── Prompt display name on first launch ─────────────────────
+function promptDisplayName(uid){
+  setTimeout(()=>{
+    const v = prompt('Enter your name for the leaderboard (e.g. "Jordan K."):');
+    const name = v ? v.trim().slice(0,20) : 'Anonymous';
+    window._S.displayName = name;
+    window._save();
+    pushCloudProfile();
+    window._updateUI();
+  }, 1800);
+}
+
+// ── Push score to Firestore ──────────────────────────────────
+window._pushCloud = async function(){
+  if(!fbUid) return;
+  const S = window._S;
+  try{
+    await setDoc(doc(db,'users',fbUid),{
+      displayName : S.displayName || 'Anonymous',
+      emoji       : window._getEmoji().emoji,
+      todayDots   : S.todayDots,
+      todayDate   : window._toDay(),
+      weekDots    : S.weekDots,
+      allDots     : S.allDots,
+      streak      : S.streak,
+      updatedAt   : serverTimestamp(),
+    },{merge:true});
+  }catch(e){ console.warn('pushCloud error',e); }
+};
+
+function pushCloudProfile(){ window._pushCloud(); }
+
+// ── Live leaderboard listener ────────────────────────────────
+function subscribeLeaderboard(){
+  const q = query(collection(db,'users'), orderBy('todayDots','desc'), limit(20));
+  onSnapshot(q, snap=>{
+    const rows = [];
+    snap.forEach(d=>{
+      const data = d.data();
+      rows.push({
+        uid   : d.id,
+        n     : data.displayName || 'Anonymous',
+        emoji : data.emoji || '🐣',
+        score : data.todayDots || 0,
+        week  : data.weekDots  || 0,
+        all   : data.allDots   || 0,
+        streak: data.streak    || 0,
+        you   : d.id === fbUid,
+      });
+    });
+    window._liveRows = rows;
+    if(window._renderLB) window._renderLB(window._lbPeriod||'day');
+  });
+}
+</script>
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -217,6 +332,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 .perm-sub{font-size:14px;color:var(--text2);line-height:1.6;max-width:280px}
 .perm-btn{background:var(--gold);color:#1a1200;border:none;border-radius:100px;padding:15px 40px;font-family:'Outfit',sans-serif;font-weight:700;font-size:16px;cursor:pointer;box-shadow:0 0 40px var(--gold-glow);-webkit-appearance:none}
 .perm-note{font-size:11px;color:var(--text3);line-height:1.5;max-width:260px}
+#permDefault{display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center}
+#permError{gap:14px}
 
 /* MARKERS */
 .player-el{width:44px;height:44px;display:flex;align-items:center;justify-content:center;position:relative}
@@ -245,9 +362,34 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
     <div class="perm-title">Waga·Waga Walk</div>
     <div style="font-size:11px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;color:var(--text2);margin-top:4px">Beta</div>
   </div>
-  <div class="perm-sub">Walk your neighborhood, collect dots, own territories, and compete with friends.</div>
-  <button class="perm-btn" onclick="startApp()">Enable Location</button>
-  <div class="perm-note">Your location is only used while the app is open and is never stored on a server.</div>
+
+  <!-- Default state -->
+  <div id="permDefault">
+    <div class="perm-sub">Walk your neighborhood, collect dots, own territories, and compete with friends.</div>
+    <button class="perm-btn" style="margin-top:4px" onclick="startApp()">Enable Location</button>
+    <div class="perm-note">Your location is only used while the app is open and is never stored on a server.</div>
+  </div>
+
+  <!-- Searching state -->
+  <div id="permSearching" style="display:none;text-align:center">
+    <div class="perm-sub">Finding your location…</div>
+    <div style="margin-top:8px;font-size:24px">📍</div>
+  </div>
+
+  <!-- Error state -->
+  <div id="permError" style="display:none;text-align:center;gap:14px;display:none;flex-direction:column;align-items:center">
+    <div style="font-size:32px">🚫</div>
+    <div class="perm-sub" id="permErrorMsg">Location access was denied.</div>
+    <div style="background:rgba(240,180,41,0.08);border:1px solid var(--gold-border);border-radius:14px;padding:14px 16px;font-size:12px;color:var(--text2);line-height:1.7;max-width:290px;text-align:left">
+      <strong style="color:var(--gold);display:block;margin-bottom:4px">To fix this on iPhone:</strong>
+      1. Open the <strong style="color:var(--text)">Settings</strong> app<br>
+      2. Tap <strong style="color:var(--text)">Privacy & Security → Location Services</strong><br>
+      3. Find <strong style="color:var(--text)">Safari</strong> → set to <strong style="color:var(--text)">While Using</strong><br>
+      4. Come back and tap Retry below
+    </div>
+    <button class="perm-btn" onclick="retryLocation()">Try Again</button>
+    <div class="perm-note">Location is required to play. Dots are placed on real streets near you.</div>
+  </div>
 </div>
 
 <div class="shell">
@@ -414,7 +556,19 @@ function loadStore(){
   }catch(e){return blank();}
 }
 let S=loadStore();
-const save=()=>localStorage.setItem(SK,JSON.stringify(S));
+window._S = S;
+window._toDay = toDay;
+window._save = ()=>{ localStorage.setItem(SK,JSON.stringify(S)); window._S=S; };
+window._updateUI = ()=>{ if(typeof updateUI==='function') updateUI(); };
+window._updatePlayerPin = ()=>{ if(typeof updatePlayerPin==='function') updatePlayerPin(); };
+window._getEmoji = ()=>{ if(typeof getEmoji==='function') return getEmoji(); return {emoji:'🐣'}; };
+window._liveRows = [];
+window._lbPeriod = 'day';
+const save = ()=>{
+  localStorage.setItem(SK,JSON.stringify(S));
+  window._S=S;
+  if(window._pushCloud) window._pushCloud();
+};
 
 /* ─── STATIC DATA ────────────────────────────────────────── */
 const LB={
@@ -836,47 +990,91 @@ function addGhost(lat,lng){
 }
 
 /* ─── GEO ────────────────────────────────────────────────── */
+function showPermState(state, msg=''){
+  document.getElementById('permDefault').style.display   = state==='default'   ? 'block' : 'none';
+  document.getElementById('permSearching').style.display = state==='searching' ? 'block' : 'none';
+  document.getElementById('permError').style.display     = state==='error'     ? 'flex'  : 'none';
+  if(msg) document.getElementById('permErrorMsg').textContent = msg;
+}
+
 function startApp(){
-  document.getElementById('perm').classList.add('gone');
-  if(!('geolocation' in navigator)){useDemo();return;}
-  setGPS('searching','Searching…');
+  if(!('geolocation' in navigator)){
+    showPermState('error','Your browser doesn\'t support location services.');
+    return;
+  }
+  showPermState('searching');
+  requestLocation();
+}
+
+function retryLocation(){
+  showPermState('searching');
+  requestLocation();
+}
+
+function requestLocation(){
   navigator.geolocation.getCurrentPosition(
     pos=>{
       const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
       playerLat=lat;playerLng=lng;
       setGPS('active',`±${Math.round(acc)}m`);
-      initMap(lat,lng);geoName(lat,lng);askInit();
+      document.getElementById('perm').classList.add('gone');
+      initMap(lat,lng);
+      geoName(lat,lng);
     },
-    ()=>useDemo(),
-    {enableHighAccuracy:true,timeout:15000,maximumAge:0}
+    err=>{
+      let msg = 'Location access was denied.';
+      if(err.code===1) msg = 'Location access was denied.';
+      else if(err.code===2) msg = 'Your location couldn\'t be determined. Check your signal and try again.';
+      else if(err.code===3) msg = 'Location request timed out. Please try again.';
+      showPermState('error', msg);
+    },
+    {enableHighAccuracy:true, timeout:15000, maximumAge:0}
   );
 }
 
-function useDemo(){
-  const lat=40.7549,lng=-73.9840;playerLat=lat;playerLng=lng;
-  setGPS('error','Demo · NYC');
-  document.getElementById('locLbl').textContent='Demo Mode · NYC';
-  initMap(lat,lng);showToast(ICO.warn,'Location denied — using NYC demo');askInit();
-}
+let mapFollowing = true; // auto-follow mode, disabled if user manually pans
 
 function startWatch(){
   if(watchId!==null) return;
   watchId=navigator.geolocation.watchPosition(pos=>{
-    const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
+    const{latitude:lat,longitude:lng,accuracy:acc,heading}=pos.coords;
+
+    // Ignore noisy readings with very poor accuracy (>60m in dense NYC is suspect)
+    if(acc > 65) return;
+
     setGPS('active',`±${Math.round(acc)}m`);
     playerLat=lat;playerLng=lng;
     if(playerMarker) playerMarker.setLngLat([lng,lat]);
     checkCollect(lat,lng);
     updateNearby(lat,lng);
     addGhost(lat,lng);
+
+    // Auto-follow: smoothly pan map to player position
+    if(mapFollowing && map){
+      map.easeTo({
+        center:[lng,lat],
+        duration:800,
+        easing:t=>t,         // linear — feels like live tracking
+        essential:true
+      });
+    }
+
     if(!startWatch._geo||Date.now()-startWatch._geo>12000){startWatch._geo=Date.now();geoName(lat,lng);}
-    // Auto-rescan: if walked 400m+ from last scan origin, pan map and wait for idle then rescan
+
+    // Auto-rescan dots when walked 400m from last scan
     if(lastScanLat!==null && hav(lat,lng,lastScanLat,lastScanLng) > RESCAN_DIST_M){
-      lastScanLat=lat; lastScanLng=lng; // update immediately to prevent repeated triggers
-      map.easeTo({center:[lng,lat],duration:800});
+      lastScanLat=lat;lastScanLng=lng;
       map.once('idle',()=>buildRoadDots(lat,lng,true));
     }
-  },()=>setGPS('error','GPS lost'),{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
+  },()=>setGPS('error','GPS lost'),{
+    enableHighAccuracy:true,
+    maximumAge:0,        // always fresh — no cached positions
+    timeout:10000
+  });
+
+  // If user manually pans the map, pause auto-follow
+  // Tapping the center FAB re-enables it
+  map.on('dragstart',()=>{ mapFollowing=false; });
 }
 
 function stopWatch(){if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}}
@@ -902,7 +1100,12 @@ function toggleWalk(){
     stopWatch();setGPS('searching','Paused');
   }
 }
-function centerMap(){if(map&&playerLng!==null) map.flyTo({center:[playerLng,playerLat],zoom:16,speed:1.2});}
+function centerMap(){
+  if(map&&playerLng!==null){
+    mapFollowing=true;
+    map.flyTo({center:[playerLng,playerLat],zoom:16,speed:1.2});
+  }
+}
 
 /* ─── UI ─────────────────────────────────────────────────── */
 function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n);}
@@ -950,15 +1153,55 @@ function showPanel(id,el,cls){
 
 /* ─── RENDER LEADERBOARD ─────────────────────────────────── */
 function renderLB(period){
-  const fr=LB[period]||LB.day;
-  const me={n:'You',loc:'Here',score:period==='day'?S.todayDots:period==='week'?S.weekDots:S.allDots,av:S.initials||'?',c:'#F0B429',you:true};
-  const all=period==='day'?[...fr,me].sort((a,b)=>b.score-a.score):fr;
-  const el=document.getElementById('lbList');el.innerHTML='';
-  all.forEach((e,i)=>{
-    const d=document.createElement('div');d.className=`lb-card ${e.you?'you':''}`;
-    d.innerHTML=`<div class="lbc-rank">#${i+1}</div><div class="lbc-top"><div class="lbc-av" style="background:${e.c};color:${e.you?'#1a1200':'rgba(238,240,246,.7)'}">${e.av}</div><div><div class="lbc-name">${e.n}${e.you?'<span class="ypip"></span>':''}</div><div class="lbc-loc">${e.loc}</div></div></div><div><span class="lbc-score">${e.score.toLocaleString()}</span><span class="lbc-unit">dots</span></div>`;
-    el.appendChild(d);
-  });
+  window._lbPeriod = period;
+  window._renderLB = renderLB;
+  const el=document.getElementById('lbList');
+  el.innerHTML='';
+
+  // Use live Firebase rows if available, fall back to mock data
+  const live = window._liveRows || [];
+  if(live.length > 0){
+    const sorted = [...live].sort((a,b)=>{
+      const scoreA = period==='day'?a.score : period==='week'?a.week : a.all;
+      const scoreB = period==='day'?b.score : period==='week'?b.week : b.all;
+      return scoreB - scoreA;
+    });
+    sorted.forEach((e,i)=>{
+      const score = period==='day'?e.score : period==='week'?e.week : e.all;
+      const d=document.createElement('div');
+      d.className=`lb-card ${e.you?'you':''}`;
+      d.innerHTML=`
+        <div class="lbc-rank">#${i+1}</div>
+        <div class="lbc-top">
+          <div class="lbc-av" style="background:${e.you?'var(--gold)':'#253040'};font-size:18px;color:white">${e.emoji}</div>
+          <div>
+            <div class="lbc-name">${e.n}${e.you?'<span class="ypip"></span>':''}</div>
+            <div class="lbc-loc">${e.streak} day streak 🔥</div>
+          </div>
+        </div>
+        <div><span class="lbc-score">${score.toLocaleString()}</span><span class="lbc-unit">dots</span></div>`;
+      el.appendChild(d);
+    });
+  } else {
+    // Fallback mock data while Firebase loads
+    const fr=LB[period]||LB.day;
+    const me={n:S.displayName||'You',score:period==='day'?S.todayDots:period==='week'?S.weekDots:S.allDots,emoji:getEmoji().emoji,you:true,streak:S.streak};
+    const all=[...fr.map(f=>({...f,emoji:'🐣',streak:0})),me].sort((a,b)=>b.score-a.score);
+    all.forEach((e,i)=>{
+      const d=document.createElement('div');d.className=`lb-card ${e.you?'you':''}`;
+      d.innerHTML=`
+        <div class="lbc-rank">#${i+1}</div>
+        <div class="lbc-top">
+          <div class="lbc-av" style="background:${e.you?'var(--gold)':'#253040'};font-size:18px">${e.emoji||'🐣'}</div>
+          <div>
+            <div class="lbc-name">${e.n}${e.you?'<span class="ypip"></span>':''}</div>
+            <div class="lbc-loc">${e.streak||0} day streak 🔥</div>
+          </div>
+        </div>
+        <div><span class="lbc-score">${(e.score||0).toLocaleString()}</span><span class="lbc-unit">dots</span></div>`;
+      el.appendChild(d);
+    });
+  }
 }
 function setLBTab(btn,period){btn.closest('.subtabs').querySelectorAll('.stab').forEach(s=>s.classList.remove('on'));btn.classList.add('on');renderLB(period);}
 

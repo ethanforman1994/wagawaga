@@ -27,7 +27,7 @@
   --green:#22C55E;--red:#EF4444;
   --st:env(safe-area-inset-top,0px);
   --sb:env(safe-area-inset-bottom,0px);
-  --sh:230px;
+  --sh:300px;
 }
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
 .shell{position:relative;height:100vh;max-width:430px;margin:0 auto;overflow:hidden}
@@ -119,7 +119,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 .panel.hidden{opacity:0;pointer-events:none;transform:translateY(6px)}
 
 /* TODAY */
-.tally{padding:10px 16px 8px;display:flex;flex-direction:column;gap:9px}
+.tally{padding:10px 16px 20px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;flex:1;scrollbar-width:none}
+.tally::-webkit-scrollbar{display:none}
 .tally-top{display:flex;align-items:baseline;gap:8px}
 .tally-num{font-size:40px;font-weight:900;letter-spacing:-2px;color:var(--gold);line-height:1}
 .tally-lbl{font-size:12px;color:var(--text2)}
@@ -221,7 +222,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 .player-el{width:44px;height:44px;display:flex;align-items:center;justify-content:center;position:relative}
 .player-ring{position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(240,180,41,.1);animation:pr 2s infinite}
 @keyframes pr{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.3);opacity:.2}}
-.player-pin{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--gold-light),var(--gold));border:3px solid #fff;box-shadow:0 2px 16px rgba(240,180,41,.6);display:flex;align-items:center;justify-content:center;font-family:'Outfit',sans-serif;font-weight:900;font-size:12px;color:#1a1200;position:relative;z-index:1}
+.player-pin{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--gold-light),var(--gold));border:3px solid #fff;box-shadow:0 2px 16px rgba(240,180,41,.6);display:flex;align-items:center;justify-content:center;font-size:16px;position:relative;z-index:1;line-height:1}
 .friend-el{display:flex;flex-direction:column;align-items:center;gap:3px}
 .friend-pin{width:28px;height:28px;border-radius:50%;border:2.5px solid rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-family:'Outfit',sans-serif;font-weight:800;font-size:10px;color:#fff}
 .friend-lbl{background:rgba(11,14,20,.85);border-radius:6px;padding:2px 6px;font-size:9px;font-weight:600;color:rgba(238,240,246,.8);white-space:nowrap}
@@ -452,7 +453,35 @@ const FRIENDS_CFG=[
   {n:'Sam W.',i:'SW',c:'#0EB8A0',spd:0.000042},{n:'Devon R.',i:'DR',c:'#253040',spd:0.000031},
 ];
 
-/* ─── STATE ──────────────────────────────────────────────── */
+/* ─── EMOJI TIERS ────────────────────────────────────────────
+   Assigned by streak. Each tier unlocks at a streak milestone.
+   allDots is used as a tiebreaker within the same streak tier.  */
+const EMOJI_TIERS = [
+  { min:0,   emoji:'🐣', label:'Hatchling'   },
+  { min:1,   emoji:'🐢', label:'Slow & Steady'},
+  { min:3,   emoji:'🦊', label:'Fox Trotter'  },
+  { min:5,   emoji:'🐆', label:'Cheetah'      },
+  { min:7,   emoji:'🦅', label:'Eagle'        },
+  { min:10,  emoji:'🚀', label:'Rocket'       },
+  { min:14,  emoji:'🌟', label:'Star Walker'  },
+  { min:21,  emoji:'🔥', label:'On Fire'      },
+  { min:30,  emoji:'👑', label:'Legend'       },
+];
+
+function getEmoji(){
+  let tier = EMOJI_TIERS[0];
+  for(const t of EMOJI_TIERS){
+    if(S.streak >= t.min) tier = t;
+  }
+  return tier;
+}
+
+function updatePlayerPin(){
+  const {emoji} = getEmoji();
+  const pin = document.getElementById('ppin');
+  if(pin) pin.textContent = emoji;
+  document.getElementById('avBtn').textContent = emoji;
+}
 mapboxgl.accessToken = TOKEN;
 let map=null, playerMarker=null, playerLat=null, playerLng=null;
 let tracking=false, watchId=null, ghostOn=false, ghostPts=[];
@@ -712,7 +741,7 @@ function initMap(lat,lng){
   map.on('load',()=>{
     // Player marker
     const el=document.createElement('div');el.className='player-el';
-    el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${S.initials||'?'}</div>`;
+    el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${getEmoji().emoji}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 
     // Friends
@@ -884,8 +913,13 @@ function updateUI(){
   document.getElementById('tallyNum').textContent=S.todayDots;
   document.getElementById('streakVal').textContent=S.streak;
   document.getElementById('streakBig').textContent=S.streak;
-  const pin=document.getElementById('ppin');if(pin) pin.textContent=S.initials||'?';
-  document.getElementById('avBtn').textContent=S.initials||'?';
+  // Check for tier upgrade before updating pin
+  const newTier = getEmoji();
+  if(S._lastTier && S._lastTier !== newTier.label){
+    showToast(ICO.star,`You're now a ${newTier.emoji} ${newTier.label}!`);
+  }
+  S._lastTier = newTier.label;
+  updatePlayerPin();
   document.getElementById('chSub').textContent=`${S.todayDots} / 50 · resets midnight`;
   document.getElementById('chBar').style.width=Math.min(100,S.todayDots/50*100)+'%';
   if(S.streak>0&&new Date().getHours()>=20) document.getElementById('streakSub').textContent='Streak at risk — walk tonight!';
@@ -1009,10 +1043,7 @@ const NUDGES=[[ICO.warn,'Jordan is 8 dots ahead — keep going!'],[ICO.fire,'You
 function nudge(){if(Date.now()-lastNudge<45000||Math.random()>.25)return;lastNudge=Date.now();const[ic,msg]=NUDGES[nudgeIdx%NUDGES.length];nudgeIdx++;showToast(ic,msg);}
 
 /* ─── INITIALS ───────────────────────────────────────────── */
-function askInit(){
-  if(S.initials&&S.initials!=='?') return;
-  setTimeout(()=>{const v=prompt('Enter your initials to appear on the map (e.g. EF):');if(v){S.initials=v.toUpperCase().slice(0,2);save();updateUI();}},1500);
-}
+function askInit(){ /* initials replaced by emoji tiers */ }
 
 /* ─── MIDNIGHT RESET ─────────────────────────────────────── */
 function scheduleMidnight(){
@@ -1030,7 +1061,7 @@ function scheduleMidnight(){
 
 /* ─── BOOT ───────────────────────────────────────────────── */
 updateUI();scheduleMidnight();
-if(S.initials&&S.initials!=='?') document.getElementById('avBtn').textContent=S.initials;
+updatePlayerPin();
 </script>
 </body>
 </html>

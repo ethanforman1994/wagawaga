@@ -378,7 +378,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 const TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
 const COLLECT_M  = 18;      // metres to collect a dot
 const DOT_STEP_M = 15;      // metres between dots along road (Pac-Man density)
-const SPAWN_R_M  = 2000;    // pre-load radius in metres
+const SPAWN_R_M  = 4000;    // pre-load radius in metres
 const GOLD_PCT   = 4;       // % chance a dot is golden
 
 /* ─── STORAGE ────────────────────────────────────────────── */
@@ -457,6 +457,8 @@ mapboxgl.accessToken = TOKEN;
 let map=null, playerMarker=null, playerLat=null, playerLng=null;
 let tracking=false, watchId=null, ghostOn=false, ghostPts=[];
 let dotsReady=false;
+let lastScanLat=null, lastScanLng=null;  // origin of last road scan
+const RESCAN_DIST_M = 400;               // trigger rescan after walking this far
 
 /* Dot store: id → {id,lat,lng,type,pts,label} */
 const DOTS = {};
@@ -521,8 +523,9 @@ const WALKABLE_CLASSES = new Set([
 
 const SKIP_CLASSES = new Set(['motorway','ferry','aerialway','golf']);
 
-function buildRoadDots(centerLat, centerLng){
-  document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
+function buildRoadDots(centerLat, centerLng, silent=false){
+  if(!silent) document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
+  lastScanLat=centerLat; lastScanLng=centerLng;
 
   // We query at zoom 14 to get a wide tile coverage
   const sourceId  = 'composite';
@@ -589,9 +592,38 @@ function buildRoadDots(centerLat, centerLng){
     added++;
   });
 
-  console.log(`[WagaWaga] Road dots generated: ${added} (total unique: ${Object.keys(DOTS).length})`);
-  document.getElementById('dotLoader').textContent=`✓ ${Object.keys(DOTS).length} dots loaded`;
-  setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
+  // ── Merge pass: collapse any non-landmark dots within 20m of each other ──
+  // Build a list of new (non-landmark, non-eaten) dots to check
+  const allIds = Object.keys(DOTS);
+  const toRemove = new Set();
+
+  for(let i=0;i<allIds.length;i++){
+    const a = DOTS[allIds[i]];
+    if(!a || a.type==='landmark' || toRemove.has(a.id)) continue;
+    for(let j=i+1;j<allIds.length;j++){
+      const b = DOTS[allIds[j]];
+      if(!b || b.type==='landmark' || toRemove.has(b.id)) continue;
+      if(hav(a.lat,a.lng,b.lat,b.lng) < 20){
+        // Keep 'a', merge 'b' into it by averaging position, remove 'b'
+        a.lat = (a.lat + b.lat) / 2;
+        a.lng = (a.lng + b.lng) / 2;
+        // Prefer golden type if either is golden
+        if(b.type==='golden') a.type='golden';
+        toRemove.add(b.id);
+        added--;
+      }
+    }
+  }
+  toRemove.forEach(id=>delete DOTS[id]);
+
+  const total = Object.keys(DOTS).length;
+  console.log(`[WagaWaga] Road dots generated: ${added} new, ${toRemove.size} merged, ${total} total unique`);
+  if(!silent){
+    document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
+    setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
+  } else if(added>0){
+    showToast(ICO.teal,`+${added} new dots ahead!`);
+  }
 
   pushGL();
   dotsReady=true;
@@ -809,6 +841,12 @@ function startWatch(){
     updateNearby(lat,lng);
     addGhost(lat,lng);
     if(!startWatch._geo||Date.now()-startWatch._geo>12000){startWatch._geo=Date.now();geoName(lat,lng);}
+    // Auto-rescan: if walked 400m+ from last scan origin, pan map and wait for idle then rescan
+    if(lastScanLat!==null && hav(lat,lng,lastScanLat,lastScanLng) > RESCAN_DIST_M){
+      lastScanLat=lat; lastScanLng=lng; // update immediately to prevent repeated triggers
+      map.easeTo({center:[lng,lat],duration:800});
+      map.once('idle',()=>buildRoadDots(lat,lng,true));
+    }
   },()=>setGPS('error','GPS lost'),{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
 }
 

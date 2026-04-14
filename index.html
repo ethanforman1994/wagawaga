@@ -377,7 +377,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 /* ─── CONFIG ─────────────────────────────────────────────── */
 const TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
 const COLLECT_M  = 18;      // metres to collect a dot
-const DOT_STEP_M = 12;      // metres between dots along road (Pac-Man density)
+const DOT_STEP_M = 15;      // metres between dots along road (Pac-Man density)
 const SPAWN_R_M  = 2000;    // pre-load radius in metres
 const GOLD_PCT   = 4;       // % chance a dot is golden
 
@@ -469,9 +469,9 @@ function hav(lat1,lng1,lat2,lng2){
 }
 
 function dotId(lat,lng){
-  // Snap to ~6m grid for dedup
-  const snLat=Math.round(lat*10000)/10000;
-  const snLng=Math.round(lng*10000)/10000;
+  // Snap to ~12m grid for dedup — eliminates duplicate clusters from overlapping tile features
+  const snLat=Math.round(lat*5000)/5000;
+  const snLng=Math.round(lng*5000)/5000;
   return `d_${Math.round(snLat*100000)}_${Math.round(snLng*100000)}`;
 }
 

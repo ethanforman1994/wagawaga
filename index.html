@@ -11,8 +11,7 @@
 
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -21,358 +20,229 @@
   --gold-glow:rgba(240,180,41,0.32);--gold-border:rgba(240,180,41,0.25);
   --teal:#0EB8A0;--teal-light:#2DD4BF;--teal-dim:rgba(14,184,160,0.12);
   --teal-border:rgba(14,184,160,0.25);
-  --bg:#0B0E14;--slate-1:#111520;--slate-2:#161B27;--slate-3:#1C2235;
+  --bg:#0B0E14;--slate-2:#161B27;--slate-3:#1C2235;
   --glass:rgba(17,21,32,0.88);--glass2:rgba(255,255,255,0.04);
   --border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.11);
   --text:#EEF0F6;--text2:rgba(238,240,246,0.52);--text3:rgba(238,240,246,0.24);
-  --green:#22C55E;--red:#EF4444;--orange:#F97316;
-  --safe-top:env(safe-area-inset-top,0px);
-  --safe-bottom:env(safe-area-inset-bottom,0px);
+  --green:#22C55E;--red:#EF4444;
+  --st:env(safe-area-inset-top,0px);
+  --sb:env(safe-area-inset-bottom,0px);
+  --sh:230px;
 }
-html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
-.shell{display:flex;flex-direction:column;height:100%;height:100dvh;max-width:430px;margin:0 auto;position:relative;overflow:hidden}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
+.shell{position:relative;height:100vh;max-width:430px;margin:0 auto;overflow:hidden}
 
-/* ── MAP ── */
-#map{position:absolute;inset:0;width:100%;height:100%;z-index:0}
-.mapboxgl-ctrl-attrib{background:rgba(11,14,20,0.7)!important;border-radius:6px!important}
-.mapboxgl-ctrl-attrib a{color:var(--text2)!important}
+#map{position:absolute;inset:0;width:100%;height:100%}
 .mapboxgl-ctrl-logo{display:none!important}
-.mapboxgl-ctrl-bottom-right{bottom:250px!important;right:10px!important}
-.mapboxgl-ctrl-bottom-left{bottom:250px!important}
+.mapboxgl-ctrl-bottom-right{bottom:calc(var(--sh) + 10px)!important;right:10px!important}
+.mapboxgl-ctrl-attrib{background:rgba(11,14,20,0.75)!important;border-radius:6px!important}
 
-.map-ui{position:absolute;inset:0;z-index:10;pointer-events:none}
-.map-ui>*{pointer-events:all}
+.ui{position:absolute;inset:0;z-index:10;pointer-events:none}
+.ui>*{pointer-events:all}
 
-/* ── TOPBAR ── */
-.topbar{position:absolute;top:calc(var(--safe-top) + 12px);left:14px;right:14px;z-index:20}
+/* TOPBAR */
+.topbar{position:absolute;top:calc(var(--st) + 12px);left:14px;right:14px}
 .topbar-inner{
   display:flex;align-items:center;gap:10px;
-  background:var(--glass);backdrop-filter:blur(28px);-webkit-backdrop-filter:blur(28px);
+  background:var(--glass);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
   border:1px solid var(--border2);border-radius:18px;padding:10px 12px;
-  box-shadow:0 8px 32px rgba(0,0,0,0.5);
+  box-shadow:0 8px 32px rgba(0,0,0,.5);
 }
 .brand{flex:1;display:flex;align-items:center;gap:9px}
-.brand-text{display:flex;flex-direction:column}
 .brand-name{display:flex;align-items:center;font-size:16px;font-weight:900;letter-spacing:-.04em;line-height:1}
-.bn1{color:var(--text)}.bn-sep{width:4px;height:4px;border-radius:50%;background:var(--gold);margin:0 4px 1px;display:inline-block;flex-shrink:0}.bn2{color:var(--gold)}
+.bn1{color:var(--text)}.bnsep{width:4px;height:4px;border-radius:50%;background:var(--gold);margin:0 4px 1px;display:inline-block}.bn2{color:var(--gold)}
 .brand-loc{font-size:10px;color:var(--text2);display:flex;align-items:center;gap:5px;margin-top:2px}
-.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:livepulse 2s infinite;flex-shrink:0}
-@keyframes livepulse{0%,100%{opacity:1}50%{opacity:.5;transform:scale(1.4)}}
+.ldot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:lp 2s infinite;flex-shrink:0}
+@keyframes lp{0%,100%{opacity:1}50%{opacity:.4;transform:scale(1.4)}}
 .topbar-right{display:flex;align-items:center;gap:8px}
-.streak-chip{
-  display:flex;align-items:center;gap:5px;
-  background:var(--gold-dim);border:1px solid var(--gold-border);
-  border-radius:20px;padding:5px 10px 5px 7px;
-  font-size:12px;font-weight:700;color:var(--gold);cursor:pointer;
-}
-.av-btn{
-  width:34px;height:34px;border-radius:50%;
-  background:linear-gradient(135deg,var(--gold-light),var(--gold));
-  border:none;cursor:pointer;font-family:'Outfit',sans-serif;
-  font-weight:900;font-size:14px;color:#1a1200;
-  display:flex;align-items:center;justify-content:center;
-  box-shadow:0 2px 14px var(--gold-glow);flex-shrink:0;
-}
+.streak-chip{display:flex;align-items:center;gap:5px;background:var(--gold-dim);border:1px solid var(--gold-border);border-radius:20px;padding:5px 10px 5px 7px;font-size:12px;font-weight:700;color:var(--gold)}
+.av-btn{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--gold-light),var(--gold));border:none;font-family:'Outfit',sans-serif;font-weight:900;font-size:14px;color:#1a1200;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 14px var(--gold-glow);flex-shrink:0;cursor:pointer}
 
-/* ── SCORE ROW ── */
-.score-row{position:absolute;top:calc(var(--safe-top) + 76px);left:14px;right:14px;display:flex;gap:8px;z-index:20}
-.sp{
-  flex:1;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  border:1px solid var(--border);border-radius:14px;padding:9px 8px 7px;text-align:center;
-  box-shadow:0 4px 20px rgba(0,0,0,0.3);
-}
+/* SCORES */
+.score-row{position:absolute;top:calc(var(--st) + 76px);left:14px;right:14px;display:flex;gap:8px}
+.sp{flex:1;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:14px;padding:9px 8px 7px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.3)}
 .sp .v{font-size:18px;font-weight:800;color:var(--gold);letter-spacing:-.5px;display:block;line-height:1}
 .sp .l{font-size:9px;font-weight:500;color:var(--text2);letter-spacing:.7px;text-transform:uppercase;margin-top:3px;display:block}
 
-/* ── CHALLENGE BANNER ── */
-.ch-banner{
-  position:absolute;top:calc(var(--safe-top) + 150px);left:14px;right:14px;z-index:20;
-  background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  border:1px solid var(--teal-border);border-radius:14px;
-  padding:10px 14px;display:flex;align-items:center;gap:10px;
-  box-shadow:0 4px 20px rgba(0,0,0,0.3);cursor:pointer;
-}
-.ch-banner-text{flex:1;min-width:0}
-.ch-banner-title{font-size:12px;font-weight:700;color:var(--teal-light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ch-banner-sub{font-size:10px;color:var(--text2);margin-top:1px}
-.ch-banner-prog{margin-top:6px;height:3px;background:var(--teal-dim);border-radius:2px;overflow:hidden}
-.ch-banner-bar{height:100%;background:var(--teal);border-radius:2px;transition:width .4s}
+/* CHALLENGE BANNER */
+.ch-banner{position:absolute;top:calc(var(--st) + 150px);left:14px;right:14px;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--teal-border);border-radius:14px;padding:10px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.3);cursor:pointer}
+.cht{flex:1;min-width:0}
+.cht-title{font-size:12px;font-weight:700;color:var(--teal-light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cht-sub{font-size:10px;color:var(--text2);margin-top:1px}
+.cht-prog{margin-top:6px;height:3px;background:var(--teal-dim);border-radius:2px;overflow:hidden}
+.cht-bar{height:100%;background:var(--teal);border-radius:2px;transition:width .4s}
 .ch-badge{background:var(--teal-dim);border:1px solid var(--teal-border);border-radius:8px;padding:3px 8px;font-size:10px;font-weight:700;color:var(--teal-light);flex-shrink:0}
 
-/* ── GPS BADGE ── */
-.gps-badge{
-  position:absolute;top:calc(var(--safe-top) + 210px);left:14px;z-index:20;
-  background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  border:1px solid var(--border2);border-radius:12px;
-  padding:6px 11px;display:flex;align-items:center;gap:6px;
-  font-size:11px;font-weight:500;color:var(--text2);
-  box-shadow:0 4px 16px rgba(0,0,0,0.3);transition:all .3s;
-}
-.gps-badge.active{border-color:rgba(34,197,94,0.3);color:var(--green)}
-.gps-badge.searching{border-color:rgba(240,180,41,0.3);color:var(--gold)}
-.gps-badge.error{border-color:rgba(239,68,68,0.3);color:var(--red)}
-.gps-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
-.gps-badge.active .gps-dot{animation:livepulse 1.5s infinite}
-.nearby-badge{
-  position:absolute;top:calc(var(--safe-top) + 210px);right:14px;z-index:20;
-  background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  border:1px solid var(--border);border-radius:12px;
-  padding:6px 11px;font-size:11px;font-weight:600;color:var(--text2);
-  box-shadow:0 4px 16px rgba(0,0,0,0.3);
-}
+/* GPS */
+.gps-badge{position:absolute;top:calc(var(--st) + 222px);left:14px;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border2);border-radius:12px;padding:6px 11px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--text2)}
+.gps-badge.active{border-color:rgba(34,197,94,.3);color:var(--green)}
+.gps-badge.error{border-color:rgba(239,68,68,.3);color:var(--red)}
+.gdot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0}
+.gps-badge.active .gdot{animation:lp 1.5s infinite}
+.nearby-badge{position:absolute;top:calc(var(--st) + 222px);right:14px;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border);border-radius:12px;padding:6px 11px;font-size:11px;font-weight:600;color:var(--text2)}
 .nearby-badge span{color:var(--gold)}
 
-/* ── WALK BUTTON ── */
-.walk-wrap{position:absolute;bottom:calc(var(--safe-bottom) + 260px);left:50%;transform:translateX(-50%);z-index:20}
-.walk-btn{
-  display:flex;align-items:center;gap:10px;
-  background:var(--gold);color:#1a1200;border:none;border-radius:100px;
-  padding:14px 30px;font-family:'Outfit',sans-serif;font-weight:700;font-size:15px;
-  cursor:pointer;white-space:nowrap;letter-spacing:-.2px;
-  box-shadow:0 0 40px var(--gold-glow),0 8px 24px rgba(0,0,0,0.35);
-  transition:transform .15s;-webkit-appearance:none;
-}
+/* WALK BUTTON */
+.walk-wrap{position:absolute;bottom:calc(var(--sb) + var(--sh) + 16px);left:50%;transform:translateX(-50%);transition:bottom .35s cubic-bezier(.32,.72,0,1)}
+.walk-btn{display:flex;align-items:center;gap:10px;background:var(--gold);color:#1a1200;border:none;border-radius:100px;padding:14px 30px;font-family:'Outfit',sans-serif;font-weight:700;font-size:15px;cursor:pointer;white-space:nowrap;box-shadow:0 0 40px var(--gold-glow),0 8px 24px rgba(0,0,0,.35);transition:transform .15s;-webkit-appearance:none}
 .walk-btn:active{transform:scale(.96)}
-.walk-btn.active{background:var(--slate-3);color:var(--text);box-shadow:0 0 0 1.5px var(--border2),0 8px 24px rgba(0,0,0,0.4)}
+.walk-btn.active{background:var(--slate-3);color:var(--text);box-shadow:0 0 0 1.5px var(--border2),0 8px 24px rgba(0,0,0,.4)}
 .walk-btn.active .wdot{background:var(--red);animation:recdot 1.1s infinite}
 .walk-btn.active svg{stroke:var(--text)}
-.wdot{width:8px;height:8px;border-radius:50%;background:rgba(26,18,0,.3);flex-shrink:0;transition:background .2s}
+.wdot{width:8px;height:8px;border-radius:50%;background:rgba(26,18,0,.28);flex-shrink:0;transition:background .2s}
 @keyframes recdot{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.5)}50%{box-shadow:0 0 0 5px rgba(239,68,68,0)}}
 
-/* ── FABS ── */
-.fabs{position:absolute;right:14px;bottom:calc(var(--safe-bottom) + 260px);display:flex;flex-direction:column;gap:9px;z-index:20}
-.fab{
-  width:44px;height:44px;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
-  border:1px solid var(--border2);border-radius:14px;
-  display:flex;align-items:center;justify-content:center;
-  cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.35);transition:transform .15s;
-}
+/* FABS */
+.fabs{position:absolute;right:14px;bottom:calc(var(--sb) + var(--sh) + 14px);display:flex;flex-direction:column;gap:9px;transition:bottom .35s cubic-bezier(.32,.72,0,1)}
+.fab{width:44px;height:44px;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border2);border-radius:14px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,.35)}
 .fab svg{stroke:var(--text2)}
 .fab:active{transform:scale(.93)}
 
-/* ── SHEET ── */
+/* SHEET */
 .sheet{
   position:absolute;bottom:0;left:0;right:0;
-  height:calc(var(--safe-bottom) + 242px);
+  height:var(--sh);
   background:var(--glass);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
   border-top:1px solid var(--border2);border-radius:22px 22px 0 0;
   z-index:30;display:flex;flex-direction:column;
   box-shadow:0 -8px 48px rgba(0,0,0,.55);
+  overflow:hidden;
   transition:height .35s cubic-bezier(.32,.72,0,1);
 }
-.sheet.expanded{height:72vh}
-.sheet.collapsed{height:calc(var(--safe-bottom) + 52px)}
-.handle{
-  width:36px;height:4px;background:rgba(255,255,255,.18);border-radius:2px;
-  margin:10px auto 0;flex-shrink:0;cursor:pointer;
-  padding:10px 0;background-clip:content-box;
-  -webkit-background-clip:content-box;
-  position:relative;
-}
-.handle::before{
-  content:'';position:absolute;
-  top:50%;left:50%;transform:translate(-50%,-50%);
-  width:36px;height:4px;border-radius:2px;
-  background:rgba(255,255,255,.18);
-}
-.handle-wrap{
-  width:100%;padding:6px 0 2px;cursor:pointer;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;
-}
-.handle-bar{width:36px;height:4px;background:rgba(255,255,255,.18);border-radius:2px}
-.sheet-nav{display:flex;padding:10px 14px 0;gap:4px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
+.sheet.collapsed{height:52px}
+.sheet.collapsed .sheet-nav,
+.sheet.collapsed .sheet-body{opacity:0;pointer-events:none}
+.sheet-handle{display:flex;flex-direction:column;align-items:center;padding:10px 0 4px;cursor:pointer;flex-shrink:0;user-select:none;-webkit-tap-highlight-color:rgba(0,0,0,0)}
+.handle-bar{width:36px;height:4px;background:rgba(255,255,255,.14);border-radius:2px}
+.handle-chev{margin-top:4px;transition:transform .3s}
+.sheet.collapsed .handle-chev{transform:rotate(180deg)}
+
+.sheet-nav{display:flex;padding:6px 14px 0;gap:4px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
 .sheet-nav::-webkit-scrollbar{display:none}
-.snav{
-  padding:5px 10px;border-radius:100px;font-size:10px;font-weight:600;
-  cursor:pointer;border:1px solid transparent;background:transparent;color:var(--text2);
-  font-family:'Outfit',sans-serif;transition:all .18s;white-space:nowrap;flex-shrink:0;
-  display:flex;align-items:center;gap:5px;
-}
+.snav{padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--text2);font-family:'Outfit',sans-serif;transition:all .18s;white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:5px}
 .snav svg{stroke:var(--text2);transition:stroke .18s;flex-shrink:0}
-.snav.on-gold{background:var(--gold-dim);border-color:var(--gold-border);color:var(--gold)}
-.snav.on-gold svg{stroke:var(--gold)}
-.snav.on-teal{background:var(--teal-dim);border-color:var(--teal-border);color:var(--teal-light)}
-.snav.on-teal svg{stroke:var(--teal-light)}
-.sheet-content{flex:1;overflow:hidden;position:relative;min-height:0}
-.panel{position:absolute;inset:0;display:flex;flex-direction:column;transition:opacity .22s,transform .22s}
+.snav.og{background:var(--gold-dim);border-color:var(--gold-border);color:var(--gold)}
+.snav.og svg{stroke:var(--gold)}
+.snav.ot{background:var(--teal-dim);border-color:var(--teal-border);color:var(--teal-light)}
+.snav.ot svg{stroke:var(--teal-light)}
+
+.sheet-body{flex:1;overflow:hidden;position:relative;min-height:0}
+.panel{position:absolute;inset:0;display:flex;flex-direction:column;transition:opacity .2s,transform .2s}
 .panel.hidden{opacity:0;pointer-events:none;transform:translateY(6px)}
 
-/* sub tabs */
-.sub-tabs{display:flex;gap:4px;padding:8px 14px 0;flex-shrink:0}
+/* TODAY */
+.tally{padding:10px 16px 8px;display:flex;flex-direction:column;gap:9px}
+.tally-top{display:flex;align-items:baseline;gap:8px}
+.tally-num{font-size:40px;font-weight:900;letter-spacing:-2px;color:var(--gold);line-height:1}
+.tally-lbl{font-size:12px;color:var(--text2)}
+.scard{display:flex;align-items:center;gap:10px;background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:10px 13px}
+.scard-icon{width:34px;height:34px;border-radius:10px;background:var(--gold-dim);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.scard-info{flex:1}
+.scard-title{font-size:13px;font-weight:700}
+.scard-sub{font-size:10px;color:var(--text2);margin-top:2px}
+.scard-val{font-size:21px;font-weight:900;color:var(--gold)}
+
+/* LEADERBOARD */
+.subtabs{display:flex;gap:4px;padding:6px 14px 0;flex-shrink:0}
 .stab{padding:4px 10px;border-radius:100px;font-size:10px;font-weight:600;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--text2);font-family:'Outfit',sans-serif;transition:all .18s}
 .stab.on{background:var(--gold-dim);border-color:var(--gold-border);color:var(--gold)}
-
-/* scrollable list */
-.list-scroll{flex:1;overflow-y:auto;scrollbar-width:none;padding:8px 14px 16px;display:flex;flex-direction:column;gap:7px}
-.list-scroll::-webkit-scrollbar{display:none}
-.hscroll{flex:1;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding:10px 14px 16px;display:flex;align-items:center;gap:10px}
+.hscroll{flex:1;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;padding:8px 14px 14px;display:flex;align-items:center;gap:10px}
 .hscroll::-webkit-scrollbar{display:none}
-
-/* ── LEADERBOARD CARDS ── */
-.lb-card{
-  flex-shrink:0;width:148px;background:var(--glass2);border:1px solid var(--border);
-  border-radius:18px;padding:13px 13px 11px;display:flex;flex-direction:column;gap:7px;position:relative;overflow:hidden;
-}
-.lb-card::before{content:'';position:absolute;inset:0;border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.03),transparent);pointer-events:none}
+.lb-card{flex-shrink:0;width:148px;background:var(--glass2);border:1px solid var(--border);border-radius:18px;padding:13px 12px 11px;display:flex;flex-direction:column;gap:7px;position:relative;overflow:hidden}
 .lb-card.you{border-color:var(--gold-border)}
 .lb-card.you::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
 .lbc-top{display:flex;align-items:center;gap:8px}
-.lbc-av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;flex-shrink:0}
+.lbc-av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:900;font-size:12px;flex-shrink:0}
 .lbc-name{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}
 .lbc-loc{font-size:10px;color:var(--text2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.lbc-score{font-size:24px;font-weight:900;letter-spacing:-1px;color:var(--text);line-height:1}
+.lbc-score{font-size:23px;font-weight:900;letter-spacing:-1px;color:var(--text);line-height:1}
 .lbc-unit{font-size:10px;color:var(--text3);font-weight:500;margin-left:2px}
-.lbc-rank{position:absolute;top:11px;right:11px;font-size:10px;font-weight:700;color:var(--text3)}
+.lbc-rank{position:absolute;top:10px;right:10px;font-size:10px;font-weight:700;color:var(--text3)}
 .lb-card.you .lbc-rank{color:var(--gold)}
-.you-pip{width:6px;height:6px;border-radius:50%;background:var(--gold);display:inline-block;flex-shrink:0}
-.lbc-terr{font-size:9px;color:var(--text2);margin-top:1px;display:flex;align-items:center;gap:3px}
+.ypip{width:6px;height:6px;border-radius:50%;background:var(--gold);display:inline-block;flex-shrink:0}
 
-/* ── TERRITORY CARDS ── */
-.terr-card{
-  flex-shrink:0;width:134px;background:var(--glass2);border:1px solid var(--border);
-  border-radius:16px;padding:12px;position:relative;overflow:hidden;cursor:pointer;transition:border-color .2s,transform .15s;
-}
-.terr-card:active{transform:scale(.97)}
+/* TERRITORIES */
+.terr-card{flex-shrink:0;width:130px;background:var(--glass2);border:1px solid var(--border);border-radius:16px;padding:12px;position:relative;overflow:hidden}
 .terr-card.owned{border-color:var(--gold-border)}
 .terr-card.contested{border-color:rgba(239,68,68,.25)}
 .terr-name{font-size:12px;font-weight:700;margin-bottom:3px}
 .terr-owner{font-size:10px;color:var(--text2);display:flex;align-items:center;gap:4px;margin-bottom:8px}
 .terr-bar-bg{height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden;margin-bottom:5px}
-.terr-bar-fill{height:100%;border-radius:2px}
+.terr-bar{height:100%;border-radius:2px}
 .terr-pct{font-size:10px;color:var(--text2)}
-.terr-badge{position:absolute;top:10px;right:10px;font-size:9px;font-weight:700;padding:2px 6px;border-radius:6px}
+.terr-badge{position:absolute;top:9px;right:9px;font-size:9px;font-weight:700;padding:2px 6px;border-radius:6px}
 .terr-badge.yours{background:var(--gold-dim);color:var(--gold)}
 .terr-badge.cont{background:rgba(239,68,68,.1);color:var(--red)}
 
-/* ── CHALLENGE CARDS ── */
-.ch-card{
-  background:var(--glass2);border:1px solid var(--border);border-radius:16px;
-  padding:12px 14px;display:flex;gap:12px;align-items:flex-start;cursor:pointer;transition:border-color .2s;
-}
-.ch-card.active-ch{border-color:var(--teal-border)}
-.ch-card-icon{width:36px;height:36px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:rgba(255,255,255,.04)}
-.ch-card.active-ch .ch-card-icon{background:var(--teal-dim)}
-.ch-card.active-ch .ch-card-icon svg{stroke:var(--teal-light)}
-.ch-card:not(.active-ch) .ch-card-icon svg{stroke:var(--text3)}
-.ch-card-body{flex:1;min-width:0}
-.ch-card-title{font-size:13px;font-weight:700}
-.ch-card-sub{font-size:10px;color:var(--text2);margin-top:2px;line-height:1.4}
-.ch-card-prog{margin-top:8px;height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
-.ch-card-bar{height:100%;border-radius:2px}
-.ch-card.active-ch .ch-card-bar{background:var(--teal)}
-.ch-card:not(.active-ch) .ch-card-bar{background:var(--text3)}
-.ch-card-meta{display:flex;justify-content:space-between;align-items:center;margin-top:5px}
-.ch-card-pct{font-size:10px;font-weight:600}
-.ch-card.active-ch .ch-card-pct{color:var(--teal-light)}
-.ch-card:not(.active-ch) .ch-card-pct{color:var(--text2)}
-.ch-card-timer{font-size:10px;color:var(--text2);display:flex;align-items:center;gap:4px}
+/* CHALLENGES */
+.vscroll{flex:1;overflow-y:auto;scrollbar-width:none;padding:6px 14px 14px;display:flex;flex-direction:column;gap:7px}
+.vscroll::-webkit-scrollbar{display:none}
+.ch-card{background:var(--glass2);border:1px solid var(--border);border-radius:16px;padding:12px 13px;display:flex;gap:11px;align-items:flex-start}
+.ch-card.active{border-color:var(--teal-border)}
+.ch-icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;background:rgba(255,255,255,.04)}
+.ch-card.active .ch-icon{background:var(--teal-dim)}
+.ch-card.active .ch-icon svg{stroke:var(--teal-light)}
+.ch-card:not(.active) .ch-icon svg{stroke:var(--text3)}
+.ch-body{flex:1;min-width:0}
+.ch-title{font-size:13px;font-weight:700}
+.ch-sub{font-size:10px;color:var(--text2);margin-top:2px;line-height:1.4}
+.ch-prog{margin-top:8px;height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
+.ch-bar{height:100%;border-radius:2px}
+.ch-card.active .ch-bar{background:var(--teal)}
+.ch-card:not(.active) .ch-bar{background:var(--text3)}
+.ch-meta{display:flex;justify-content:space-between;align-items:center;margin-top:5px;font-size:10px}
+.ch-pct{font-weight:600}
+.ch-card.active .ch-pct{color:var(--teal-light)}
+.ch-card:not(.active) .ch-pct{color:var(--text2)}
+.ch-timer{color:var(--text2);display:flex;align-items:center;gap:3px}
 .ch-reward{flex-shrink:0;text-align:right}
 .ch-reward-val{font-size:14px;font-weight:800;color:var(--gold)}
 .ch-reward-lbl{font-size:9px;color:var(--text3);display:block;margin-top:1px}
 
-/* ── TODAY TALLY ── */
-.tally-panel{padding:12px 16px 8px;display:flex;flex-direction:column;gap:10px}
-.tally-top{display:flex;align-items:baseline;gap:8px}
-.tally-big{font-size:42px;font-weight:900;letter-spacing:-2px;color:var(--gold);line-height:1}
-.tally-label{font-size:12px;color:var(--text2);font-weight:500}
-.tally-streak{display:flex;align-items:center;gap:10px;background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:11px 14px}
-.tsi{width:36px;height:36px;border-radius:10px;background:var(--gold-dim);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.tally-streak-info{flex:1}
-.tally-streak-title{font-size:13px;font-weight:700}
-.tally-streak-sub{font-size:10px;color:var(--text2);margin-top:2px}
-.tally-streak-val{font-size:22px;font-weight:900;color:var(--gold)}
+/* RECAP */
+.recap-wrap{padding:8px 14px 14px;overflow-y:auto;flex:1;scrollbar-width:none}
+.recap-wrap::-webkit-scrollbar{display:none}
+.recap-card{background:linear-gradient(135deg,var(--slate-2),var(--slate-3));border:1px solid var(--border2);border-radius:20px;padding:18px;position:relative;overflow:hidden}
+.recap-stats{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:14px}
+.recap-stat{background:rgba(255,255,255,.03);border-radius:12px;padding:10px 12px}
+.recap-stat-val{font-size:21px;font-weight:900;color:var(--gold);letter-spacing:-1px;line-height:1}
+.recap-stat-lbl{font-size:9px;color:var(--text2);margin-top:3px;text-transform:uppercase;letter-spacing:.5px}
+.share-btn{width:100%;padding:12px;border-radius:12px;border:none;background:var(--gold);color:#1a1200;font-family:'Outfit',sans-serif;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;-webkit-appearance:none}
 
-/* ── RECAP CARD ── */
-.recap-wrap{padding:8px 14px 16px}
-.recap-card{
-  background:linear-gradient(135deg,var(--slate-2),var(--slate-3));
-  border:1px solid var(--border2);border-radius:20px;padding:20px;
-  position:relative;overflow:hidden;
-}
-.recap-card::before{
-  content:'';position:absolute;top:-40px;right:-40px;
-  width:160px;height:160px;border-radius:50%;
-  background:radial-gradient(circle,rgba(240,180,41,0.08),transparent 70%);
-  pointer-events:none;
-}
-.recap-title{font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:12px}
-.recap-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
-.recap-stat{background:rgba(255,255,255,0.03);border-radius:12px;padding:10px 12px}
-.recap-stat-val{font-size:22px;font-weight:900;color:var(--gold);letter-spacing:-1px;line-height:1}
-.recap-stat-lbl{font-size:9px;color:var(--text2);margin-top:3px;letter-spacing:.5px;text-transform:uppercase}
-.recap-best{
-  background:var(--gold-dim);border:1px solid var(--gold-border);
-  border-radius:12px;padding:10px 14px;display:flex;align-items:center;gap:10px;margin-bottom:14px;
-}
-.recap-best-icon{width:28px;height:28px;border-radius:8px;background:var(--gold-dim);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.recap-best-text{flex:1;font-size:12px;font-weight:600;color:var(--gold)}
-.recap-best-sub{font-size:10px;color:rgba(240,180,41,0.6);margin-top:1px}
-.share-btn{
-  width:100%;padding:12px;border-radius:12px;border:none;
-  background:var(--gold);color:#1a1200;font-family:'Outfit',sans-serif;
-  font-weight:700;font-size:13px;cursor:pointer;
-  display:flex;align-items:center;justify-content:center;gap:8px;
-  -webkit-appearance:none;
-}
-
-/* ── TOAST ── */
-.toast{
-  position:absolute;top:calc(var(--safe-top) + 80px);left:50%;transform:translateX(-50%) translateY(-14px);
-  background:rgba(11,14,20,0.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
-  border:1px solid var(--border2);border-radius:14px;
-  padding:10px 14px;z-index:50;
-  display:flex;align-items:center;gap:10px;
-  box-shadow:0 8px 32px rgba(0,0,0,.55);
-  white-space:nowrap;font-size:13px;font-weight:600;
-  opacity:0;pointer-events:none;transition:opacity .28s,transform .28s;
-  min-width:200px;
-}
+/* TOAST */
+.toast{position:absolute;top:calc(var(--st) + 80px);left:50%;transform:translateX(-50%) translateY(-12px);background:rgba(11,14,20,.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid var(--border2);border-radius:14px;padding:10px 14px;z-index:50;display:flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,.55);white-space:nowrap;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;min-width:200px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
-.toast-iw{width:28px;height:28px;border-radius:8px;background:var(--glass2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.toast-icon{width:26px;height:26px;border-radius:8px;background:var(--glass2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 
-/* ── BURST ── */
-.burst-container{position:absolute;inset:0;pointer-events:none;z-index:25;overflow:hidden}
-.burst{position:absolute;border-radius:50%;pointer-events:none;animation:burst-out .65s ease-out forwards}
-@keyframes burst-out{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--bx),var(--by)) scale(0);opacity:0}}
-.score-pop{position:absolute;font-size:14px;font-weight:900;pointer-events:none;animation:score-up .8s ease-out forwards}
-@keyframes score-up{0%{transform:translateY(0) scale(1);opacity:1}100%{transform:translateY(-44px) scale(.8);opacity:0}}
+/* BURST */
+.burst-wrap{position:absolute;inset:0;pointer-events:none;z-index:25;overflow:hidden}
+.burst{position:absolute;border-radius:50%;pointer-events:none;animation:bst .6s ease-out forwards}
+@keyframes bst{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--bx),var(--by)) scale(0);opacity:0}}
+.pop{position:absolute;font-size:14px;font-weight:900;pointer-events:none;animation:pop .75s ease-out forwards}
+@keyframes pop{0%{transform:translateY(0);opacity:1}100%{transform:translateY(-40px);opacity:0}}
 
-/* ── PERMISSION SCREEN ── */
-.perm-screen{position:absolute;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px;text-align:center;gap:20px}
-.perm-screen.hidden{display:none}
+/* PERMISSION */
+.perm{position:absolute;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px;text-align:center;gap:20px}
+.perm.gone{display:none}
 .perm-title{font-size:24px;font-weight:900;letter-spacing:-.5px}
 .perm-sub{font-size:14px;color:var(--text2);line-height:1.6;max-width:280px}
 .perm-btn{background:var(--gold);color:#1a1200;border:none;border-radius:100px;padding:15px 40px;font-family:'Outfit',sans-serif;font-weight:700;font-size:16px;cursor:pointer;box-shadow:0 0 40px var(--gold-glow);-webkit-appearance:none}
 .perm-note{font-size:11px;color:var(--text3);line-height:1.5;max-width:260px}
 
-/* ── MARKERS ── */
-.dot-marker{width:12px;height:12px;border-radius:50%;background:var(--gold);box-shadow:0 0 8px var(--gold-glow);cursor:pointer;border:1.5px solid rgba(255,255,255,0.2)}
-.dot-marker.bonus{width:18px;height:18px;background:transparent;border:2px solid var(--gold);box-shadow:0 0 12px var(--gold-glow);position:relative}
-.dot-marker.bonus::after{content:'';position:absolute;width:7px;height:7px;border-radius:50%;background:var(--gold);top:50%;left:50%;transform:translate(-50%,-50%)}
-.dot-marker.golden{width:20px;height:20px;background:transparent;border:2.5px solid var(--gold-light);box-shadow:0 0 16px rgba(255,209,102,0.7);position:relative;animation:golden-pulse 2s ease-in-out infinite}
-.dot-marker.golden::after{content:'';position:absolute;width:8px;height:8px;border-radius:50%;background:var(--gold-light);top:50%;left:50%;transform:translate(-50%,-50%);box-shadow:0 0 8px rgba(255,209,102,0.8)}
-@keyframes golden-pulse{0%,100%{box-shadow:0 0 16px rgba(255,209,102,0.7)}50%{box-shadow:0 0 28px rgba(255,209,102,0.9)}}
-.dot-marker.landmark{width:24px;height:24px;background:transparent;border:2.5px solid var(--teal);box-shadow:0 0 18px var(--teal-glow,rgba(14,184,160,0.5));position:relative;animation:landmark-pulse 2.5s ease-in-out infinite}
-.dot-marker.landmark::after{content:'';position:absolute;width:9px;height:9px;border-radius:50%;background:var(--teal);top:50%;left:50%;transform:translate(-50%,-50%)}
-@keyframes landmark-pulse{0%,100%{box-shadow:0 0 18px rgba(14,184,160,0.5)}50%{box-shadow:0 0 32px rgba(14,184,160,0.8)}}
-.dot-marker.eaten{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.08);box-shadow:none;animation:none}
-
-.player-marker-el{width:40px;height:40px;display:flex;align-items:center;justify-content:center;position:relative}
-.player-ring{position:absolute;width:40px;height:40px;border-radius:50%;background:rgba(240,180,41,0.1);animation:player-pulse 2s infinite}
-@keyframes player-pulse{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.3);opacity:.2}}
-.player-pin{width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--gold-light),var(--gold));border:3px solid #fff;box-shadow:0 2px 16px rgba(240,180,41,0.6);display:flex;align-items:center;justify-content:center;font-family:'Outfit',sans-serif;font-weight:900;font-size:11px;color:#1a1200;position:relative;z-index:1}
-
-.friend-marker-el{display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer}
-.friend-pin{width:28px;height:28px;border-radius:50%;border:2.5px solid rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-family:'Outfit',sans-serif;font-weight:800;font-size:10px;color:#fff;box-shadow:0 2px 12px rgba(0,0,0,0.3)}
-.friend-label{background:rgba(11,14,20,0.85);border-radius:6px;padding:2px 6px;font-size:9px;font-weight:600;color:rgba(238,240,246,0.8);white-space:nowrap}
-
-.ghost-trail-el{width:10px;height:10px;border-radius:50%;opacity:.35;pointer-events:none}
+/* MARKERS */
+.player-el{width:44px;height:44px;display:flex;align-items:center;justify-content:center;position:relative}
+.player-ring{position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(240,180,41,.1);animation:pr 2s infinite}
+@keyframes pr{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.3);opacity:.2}}
+.player-pin{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--gold-light),var(--gold));border:3px solid #fff;box-shadow:0 2px 16px rgba(240,180,41,.6);display:flex;align-items:center;justify-content:center;font-family:'Outfit',sans-serif;font-weight:900;font-size:12px;color:#1a1200;position:relative;z-index:1}
+.friend-el{display:flex;flex-direction:column;align-items:center;gap:3px}
+.friend-pin{width:28px;height:28px;border-radius:50%;border:2.5px solid rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-family:'Outfit',sans-serif;font-weight:800;font-size:10px;color:#fff}
+.friend-lbl{background:rgba(11,14,20,.85);border-radius:6px;padding:2px 6px;font-size:9px;font-weight:600;color:rgba(238,240,246,.8);white-space:nowrap}
 </style>
 </head>
 <body>
 
 <!-- Permission screen -->
-<div class="perm-screen" id="permScreen">
+<div class="perm" id="perm">
   <svg width="56" height="44" viewBox="0 0 72 56" fill="none">
     <circle cx="8"  cy="46" r="3.5" fill="rgba(240,180,41,0.18)"/>
     <circle cx="19" cy="38" r="4"   fill="rgba(240,180,41,0.34)"/>
@@ -384,17 +254,16 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   </svg>
   <div>
     <div class="perm-title">Waga·Waga Walk</div>
-    <div style="font-size:11px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;color:var(--text2);margin-top:4px">Beta · NYC</div>
+    <div style="font-size:11px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;color:var(--text2);margin-top:4px">Beta</div>
   </div>
   <div class="perm-sub">Walk your neighborhood, collect dots, own territories, and compete with friends.</div>
-  <button class="perm-btn" onclick="requestLocation()">Enable Location</button>
-  <div class="perm-note">Location is only used while the app is open and is never stored on a server.</div>
+  <button class="perm-btn" onclick="startApp()">Enable Location</button>
+  <div class="perm-note">Your location is only used while the app is open and is never stored on a server.</div>
 </div>
 
 <div class="shell">
   <div id="map"></div>
-
-  <div class="map-ui">
+  <div class="ui">
     <!-- Topbar -->
     <div class="topbar">
       <div class="topbar-inner">
@@ -405,17 +274,17 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
             <circle cx="33" cy="27" r="4.5" fill="rgba(240,180,41,0.56)"/>
             <circle cx="48" cy="17" r="5"   fill="rgba(240,180,41,0.8)"/>
             <circle cx="62" cy="12" r="8.5" fill="var(--gold)"/>
-            <circle cx="62" cy="12" r="3.8" fill="rgba(17,21,32,0.95)"/>
+            <circle cx="62" cy="12" r="3.8" fill="rgba(17,21,32,.95)"/>
             <circle cx="69" cy="5"  r="3.5" fill="var(--teal)"/>
           </svg>
-          <div class="brand-text">
-            <div class="brand-name"><span class="bn1">Waga</span><span class="bn-sep"></span><span class="bn2">Waga</span></div>
-            <div class="brand-loc"><div class="live-dot"></div><span id="locLabel">Locating…</span></div>
+          <div>
+            <div class="brand-name"><span class="bn1">Waga</span><span class="bnsep"></span><span class="bn2">Waga</span></div>
+            <div class="brand-loc"><div class="ldot"></div><span id="locLbl">Locating…</span></div>
           </div>
         </div>
         <div class="topbar-right">
-          <div class="streak-chip" onclick="switchPanel('today',document.querySelector(\".snav\"),\'gold\')">
-            <svg width="11" height="14" viewBox="0 0 13 16" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 14.5c2.5 0 4.5-1.8 4.5-4.5 0-1.8-1-3-2-4-.3 1.2-1 2-1.8 2.2C7.8 6.5 7 4.5 5.5 3c0 2-1.5 3.2-2 4.5-.3.8-.5 1.6-.5 2.5 0 2.7 2 4.5 3.5 4.5z"/></svg>
+          <div class="streak-chip">
+            <svg width="11" height="14" viewBox="0 0 13 16" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round"><path d="M6.5 14.5c2.5 0 4.5-1.8 4.5-4.5 0-1.8-1-3-2-4-.3 1.2-1 2-1.8 2.2C7.8 6.5 7 4.5 5.5 3c0 2-1.5 3.2-2 4.5-.3.8-.5 1.6-.5 2.5 0 2.7 2 4.5 3.5 4.5z"/></svg>
             <span id="streakVal">0</span>
           </div>
           <button class="av-btn" id="avBtn">?</button>
@@ -425,954 +294,604 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 
     <!-- Scores -->
     <div class="score-row">
-      <div class="sp"><span class="v" id="todayScore">0</span><span class="l">Today</span></div>
-      <div class="sp"><span class="v" id="weekScore">0</span><span class="l">Week</span></div>
-      <div class="sp"><span class="v" id="totalScore">0</span><span class="l">All Time</span></div>
+      <div class="sp"><span class="v" id="scoreToday">0</span><span class="l">Today</span></div>
+      <div class="sp"><span class="v" id="scoreWeek">0</span><span class="l">Week</span></div>
+      <div class="sp"><span class="v" id="scoreAll">0</span><span class="l">All Time</span></div>
     </div>
 
-    <!-- Active challenge banner -->
-    <div class="ch-banner" id="chBanner" onclick="switchPanel('challenges',document.querySelectorAll(\'.snav\')[2],\'teal\')">
+    <!-- Challenge banner -->
+    <div class="ch-banner" onclick="showPanel('challenges',null,'ot')">
       <svg width="14" height="18" viewBox="0 0 16 20" fill="none" stroke="var(--teal)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M9 1L1 11h7l-1 8 8-10H8L9 1z"/></svg>
-      <div class="ch-banner-text">
-        <div class="ch-banner-title" id="chBannerTitle">Walk 5 blocks — collect 50 dots today</div>
-        <div class="ch-banner-sub" id="chBannerSub">0 / 50 · expires midnight</div>
-        <div class="ch-banner-prog"><div class="ch-banner-bar" id="chBannerBar" style="width:0%"></div></div>
+      <div class="cht">
+        <div class="cht-title">Collect 50 dots today</div>
+        <div class="cht-sub" id="chSub">0 / 50 · resets midnight</div>
+        <div class="cht-prog"><div class="cht-bar" id="chBar" style="width:0%"></div></div>
       </div>
       <div class="ch-badge">+300 pts</div>
     </div>
 
-    <!-- GPS -->
-    <div class="gps-badge searching" id="gpsBadge"><div class="gps-dot"></div><span id="gpsLabel">Searching…</span></div>
+    <!-- GPS / Nearby -->
+    <div class="gps-badge" id="gpsBadge"><div class="gdot"></div><span id="gpsLbl">Searching…</span></div>
     <div class="nearby-badge"><span id="nearbyCount">–</span> nearby</div>
 
-    <!-- Walk btn -->
-    <div class="walk-wrap">
+    <!-- Walk button -->
+    <div class="walk-wrap" id="walkWrap">
       <button class="walk-btn" id="walkBtn" onclick="toggleWalk()">
         <div class="wdot" id="wdot"></div>
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#1a1200" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="13" cy="4" r="2"/><path d="M7.5 17.5L9.5 12l3 2.5 2-6"/><path d="M9.5 12L7 18.5"/><path d="M15 13.5L17.5 19"/>
         </svg>
-        <span id="walkLabel">Start Walk</span>
+        <span id="walkLbl">Start Walk</span>
       </button>
     </div>
 
     <!-- Fabs -->
-    <div class="fabs">
-      <div class="fab" onclick="centerOnPlayer()">
+    <div class="fabs" id="fabs">
+      <div class="fab" onclick="centerMap()">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
       </div>
-      <div class="fab" onclick="toggleGhostTrail()">
+      <div class="fab" onclick="toggleGhost()">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" id="ghostIcon"><path d="M17 20H5a2 2 0 0 1-2-2V9a9 9 0 0 1 18 0v9a2 2 0 0 1-2 2z"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/></svg>
       </div>
     </div>
 
-    <div class="burst-container" id="burstContainer"></div>
+    <div class="burst-wrap" id="bw"></div>
   </div>
 
   <!-- Toast -->
-  <div class="toast" id="toast"><div class="toast-iw" id="toastIcon"></div><div id="toastMsg"></div></div>
+  <div class="toast" id="toast"><div class="toast-icon" id="tIcon"></div><div id="tMsg"></div></div>
 
   <!-- Sheet -->
-  <div class="sheet">
-    <div class="handle-wrap" onclick="toggleSheet()" id="handleWrap">
+  <div class="sheet" id="sheet">
+    <div class="sheet-handle" onclick="toggleSheet()">
       <div class="handle-bar"></div>
+      <svg class="handle-chev" width="18" height="10" viewBox="0 0 18 10" fill="none" stroke="rgba(255,255,255,0.35)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="16 8 9 2 2 8"/>
+      </svg>
     </div>
     <div class="sheet-nav">
-      <button class="snav on-gold" onclick="switchPanel('today',this,'gold')">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-        Today
+      <button class="snav og" onclick="showPanel('today',this,'og')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Today
       </button>
-      <button class="snav" onclick="switchPanel('leaderboard',this,'gold')">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4a2 2 0 0 1-2-2V5h4"/><path d="M18 9h2a2 2 0 0 0 2-2V5h-4"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M6 5v4a6 6 0 0 0 12 0V5H6z"/></svg>
-        Leaderboard
+      <button class="snav" onclick="showPanel('lb',this,'og')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4a2 2 0 0 1-2-2V5h4"/><path d="M18 9h2a2 2 0 0 0 2-2V5h-4"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M6 5v4a6 6 0 0 0 12 0V5H6z"/></svg>Leaderboard
       </button>
-      <button class="snav" onclick="switchPanel('territories',this,'teal')">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 6-9 13-9 13S3 16 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-        Territories
+      <button class="snav" onclick="showPanel('territories',this,'ot')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 6-9 13-9 13S3 16 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>Territories
       </button>
-      <button class="snav" onclick="switchPanel('challenges',this,'teal')">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-        Challenges
+      <button class="snav" onclick="showPanel('challenges',this,'ot')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>Challenges
       </button>
-      <button class="snav" onclick="switchPanel('recap',this,'gold')">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-        Recap
+      <button class="snav" onclick="showPanel('recap',this,'og')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>Recap
       </button>
     </div>
-    <div class="sheet-content">
-
-      <!-- Today -->
+    <div class="sheet-body">
       <div class="panel" id="panel-today">
-        <div class="tally-panel">
-          <div class="tally-top">
-            <div class="tally-big" id="tallyBig">0</div>
-            <div class="tally-label">dots collected today</div>
-          </div>
-          <div class="tally-streak">
-            <div class="tsi">
-              <svg width="16" height="18" viewBox="0 0 13 16" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 14.5c2.5 0 4.5-1.8 4.5-4.5 0-1.8-1-3-2-4-.3 1.2-1 2-1.8 2.2C7.8 6.5 7 4.5 5.5 3c0 2-1.5 3.2-2 4.5-.3.8-.5 1.6-.5 2.5 0 2.7 2 4.5 3.5 4.5z"/></svg>
-            </div>
-            <div class="tally-streak-info">
-              <div class="tally-streak-title">Day Streak</div>
-              <div class="tally-streak-sub" id="streakSub">Dots reset at midnight · keep moving</div>
-            </div>
-            <div class="tally-streak-val" id="streakBig">0</div>
+        <div class="tally">
+          <div class="tally-top"><div class="tally-num" id="tallyNum">0</div><div class="tally-lbl">dots collected today</div></div>
+          <div class="scard">
+            <div class="scard-icon"><svg width="16" height="18" viewBox="0 0 13 16" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round"><path d="M6.5 14.5c2.5 0 4.5-1.8 4.5-4.5 0-1.8-1-3-2-4-.3 1.2-1 2-1.8 2.2C7.8 6.5 7 4.5 5.5 3c0 2-1.5 3.2-2 4.5-.3.8-.5 1.6-.5 2.5 0 2.7 2 4.5 3.5 4.5z"/></svg></div>
+            <div class="scard-info"><div class="scard-title">Day Streak</div><div class="scard-sub" id="streakSub">Dots reset at midnight · keep moving</div></div>
+            <div class="scard-val" id="streakBig">0</div>
           </div>
         </div>
       </div>
-
-      <!-- Leaderboard -->
-      <div class="panel hidden" id="panel-leaderboard">
-        <div class="sub-tabs">
+      <div class="panel hidden" id="panel-lb">
+        <div class="subtabs">
           <button class="stab on" onclick="setLBTab(this,'day')">Today</button>
           <button class="stab" onclick="setLBTab(this,'week')">Week</button>
           <button class="stab" onclick="setLBTab(this,'month')">Month</button>
         </div>
-        <div class="hscroll" id="lbScroll"></div>
+        <div class="hscroll" id="lbList"></div>
       </div>
-
-      <!-- Territories -->
-      <div class="panel hidden" id="panel-territories">
-        <div class="hscroll" id="terrScroll"></div>
-      </div>
-
-      <!-- Challenges -->
-      <div class="panel hidden" id="panel-challenges">
-        <div class="list-scroll" id="chScroll"></div>
-      </div>
-
-      <!-- Recap -->
-      <div class="panel hidden" id="panel-recap">
-        <div class="recap-wrap" id="recapWrap"></div>
-      </div>
-
+      <div class="panel hidden" id="panel-territories"><div class="hscroll" id="terrList"></div></div>
+      <div class="panel hidden" id="panel-challenges"><div class="vscroll" id="chList"></div></div>
+      <div class="panel hidden" id="panel-recap"><div class="recap-wrap" id="recapWrap"></div></div>
     </div>
   </div>
 </div>
 
 <script>
-/* ══════════════════════════════════════════════
-   CONFIG
-══════════════════════════════════════════════ */
-const MAPBOX_TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNWYydG9razNwczlueDgifQ.h4r5WT2jyr93yWdzuigUAA';
-const COLLECT_RADIUS_M  = 25; // bumped for better collection feel
-const SPAWN_RADIUS_M    = 600;
-const DOT_SPACING_M     = 22;
-const GOLDEN_CHANCE     = 0.035;
-const BONUS_CHANCE      = 0.07;
-const LANDMARK_CHANCE   = 0.012;
+/* CONFIG */
+const TOKEN     = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNWYydG9razNwczlueDgifQ.h4r5WT2jyr93yWdzuigUAA';
+const COLLECT_M = 18;
+const SPAWN_M   = 600;
+const GRID_LAT  = 0.00022;
+const GRID_LNG  = 0.00028;
+const GOLD_PCT  = 4;
 
-/* ══════════════════════════════════════════════
-   STORAGE
-══════════════════════════════════════════════ */
-const TODAY = () => new Date().toISOString().split('T')[0];
-const SK = 'wagawaga_v2';
+/* STORAGE */
+const SK = 'wagawaga';
+const toDay = () => new Date().toISOString().split('T')[0];
+
+function blank(){
+  return{day:toDay(),todayDots:0,weekDots:0,allDots:0,streak:0,walkedToday:false,
+    eatenIds:{},collectedToday:[],weekHistory:[],initials:'?',
+    challenges:[{id:'c1',prog:0,total:50,done:false},{id:'c2',prog:0,total:3,done:false},
+                {id:'c3',prog:0,total:5,done:false},{id:'c4',prog:0,total:10,done:false}]};
+}
 
 function loadStore(){
   try{
-    const s = JSON.parse(localStorage.getItem(SK)||'null');
-    if(!s) return fresh();
-    if(s.lastDay !== TODAY()){
-      const hadWalk = s.walkedToday;
-      s.weekHistory = s.weekHistory||[];
-      s.weekHistory.unshift({date:s.lastDay, dots:s.todayDots});
-      if(s.weekHistory.length>7) s.weekHistory.pop();
-      s.streak = hadWalk ? (s.streak||0)+1 : 0;
-      s.todayDots=0; s.collectedToday=[]; s.eatenIds={};
-      s.lastDay=TODAY(); s.walkedToday=false;
+    const raw=localStorage.getItem(SK);
+    if(!raw) return blank();
+    const s=JSON.parse(raw);
+    const b=blank();
+    Object.keys(b).forEach(k=>{if(s[k]===undefined)s[k]=b[k];});
+    if(s.day!==toDay()){
+      const walked=s.walkedToday;
+      s.weekHistory=s.weekHistory||[];
+      s.weekHistory.unshift({date:s.day,dots:s.todayDots});
+      if(s.weekHistory.length>7)s.weekHistory.pop();
+      s.streak=walked?(s.streak||0)+1:0;
+      s.todayDots=0;s.eatenIds={};s.collectedToday=[];
+      s.day=toDay();s.walkedToday=false;
+      if(s.challenges)s.challenges.forEach(c=>{if(c.id==='c1'){c.prog=0;c.done=false;}});
     }
     return s;
-  }catch(e){return fresh();}
+  }catch(e){return blank();}
 }
-function fresh(){
-  return{lastDay:TODAY(),todayDots:0,weekDots:0,totalDots:0,
-    streak:0,walkedToday:false,collectedToday:[],eatenIds:{},
-    weekHistory:[],initials:'?',challenges:freshChallenges()};
-}
-function freshChallenges(){
-  return[
-    {id:'c1',prog:0,total:50,done:false},
-    {id:'c2',prog:0,total:3,done:false},
-    {id:'c3',prog:0,total:5,done:false},
-    {id:'c4',prog:0,total:10,done:false},
-    {id:'c5',prog:0,total:2,done:false},
-  ];
-}
-let store = loadStore();
-const save = () => localStorage.setItem(SK,JSON.stringify(store));
 
-/* ══════════════════════════════════════════════
-   LEADERBOARD DATA (simulated friends)
-══════════════════════════════════════════════ */
-const FRIENDS_DAY   = [{n:'Jordan K.',loc:'Upper West Side',score:412,av:'JK',c:'#3A4A6B',terr:'UWS'},
-  {n:'Priya M.',loc:'Brooklyn Hts',score:388,av:'PM',c:'#2C3E50',terr:'BK Hts'},
-  {n:'Devon R.',loc:'Astoria',score:210,av:'DR',c:'#253040',terr:'Astoria'},
-  {n:'Sam W.',loc:'Williamsburg',score:189,av:'SW',c:'#1A2E2C',terr:'WBurg'},
-  {n:'Taylor B.',loc:'Park Slope',score:144,av:'TB',c:'#222A3A',terr:'P.Slope'}];
-const FRIENDS_WEEK  = [{n:'Priya M.',loc:'Brooklyn Hts',score:2105,av:'PM',c:'#2C3E50',terr:'BK Hts'},
-  {n:'Jordan K.',loc:'Upper West Side',score:1980,av:'JK',c:'#3A4A6B',terr:'UWS'},
-  {n:'Sam W.',loc:'Williamsburg',score:1654,av:'SW',c:'#1A2E2C',terr:'WBurg'},
-  {n:'Devon R.',loc:'Astoria',score:1320,av:'DR',c:'#253040',terr:'Astoria'},
-  {n:'Taylor B.',loc:'Park Slope',score:998,av:'TB',c:'#222A3A',terr:'P.Slope'}];
-const FRIENDS_MONTH = [{n:'Sam W.',loc:'Williamsburg',score:8820,av:'SW',c:'#1A2E2C',terr:'WBurg'},
-  {n:'Jordan K.',loc:'Upper West Side',score:8401,av:'JK',c:'#3A4A6B',terr:'UWS'},
-  {n:'Priya M.',loc:'Brooklyn Hts',score:7650,av:'PM',c:'#2C3E50',terr:'BK Hts'},
-  {n:'Devon R.',loc:'Astoria',score:6200,av:'DR',c:'#253040',terr:'Astoria'},
-  {n:'Taylor B.',loc:'Park Slope',score:4300,av:'TB',c:'#222A3A',terr:'P.Slope'}];
+let S=loadStore();
+const save=()=>localStorage.setItem(SK,JSON.stringify(S));
 
-const TERRITORIES_DATA=[
-  {name:'Midtown East',owner:'You',ownerKey:'gold',pct:74,status:'owned',contested:false},
-  {name:'Upper West Side',owner:'Jordan',ownerKey:'slate',pct:61,status:'enemy',contested:false},
-  {name:'Chelsea',owner:'You',ownerKey:'gold',pct:52,status:'owned',contested:true,challenger:'Priya'},
-  {name:'Central Park',owner:'–',ownerKey:'teal',pct:38,status:'neutral',contested:true},
-  {name:"Hell's Kitchen",owner:'You',ownerKey:'gold',pct:81,status:'owned',contested:false},
-  {name:'Gramercy',owner:'Sam',ownerKey:'teal',pct:55,status:'enemy',contested:false},
+/* DATA */
+const LB={
+  day:[{n:'Jordan K.',loc:'Upper West Side',score:412,av:'JK',c:'#3A4A6B'},{n:'Priya M.',loc:'Brooklyn Hts',score:388,av:'PM',c:'#2C3E50'},{n:'Devon R.',loc:'Astoria',score:210,av:'DR',c:'#253040'},{n:'Sam W.',loc:'Williamsburg',score:189,av:'SW',c:'#1A2E2C'},{n:'Taylor B.',loc:'Park Slope',score:144,av:'TB',c:'#222A3A'}],
+  week:[{n:'Priya M.',loc:'Brooklyn Hts',score:2105,av:'PM',c:'#2C3E50'},{n:'Jordan K.',loc:'Upper West Side',score:1980,av:'JK',c:'#3A4A6B'},{n:'Sam W.',loc:'Williamsburg',score:1654,av:'SW',c:'#1A2E2C'},{n:'Devon R.',loc:'Astoria',score:1320,av:'DR',c:'#253040'},{n:'Taylor B.',loc:'Park Slope',score:998,av:'TB',c:'#222A3A'}],
+  month:[{n:'Sam W.',loc:'Williamsburg',score:8820,av:'SW',c:'#1A2E2C'},{n:'Jordan K.',loc:'Upper West Side',score:8401,av:'JK',c:'#3A4A6B'},{n:'Priya M.',loc:'Brooklyn Hts',score:7650,av:'PM',c:'#2C3E50'},{n:'Devon R.',loc:'Astoria',score:6200,av:'DR',c:'#253040'},{n:'Taylor B.',loc:'Park Slope',score:4300,av:'TB',c:'#222A3A'}],
+};
+const TERRS=[
+  {name:'Midtown East',owner:'You',ok:'gold',pct:74,status:'owned',cont:false},
+  {name:'Upper West Side',owner:'Jordan',ok:'slate',pct:61,status:'enemy',cont:false},
+  {name:'Chelsea',owner:'You',ok:'gold',pct:52,status:'owned',cont:true},
+  {name:'Central Park',owner:'–',ok:'teal',pct:38,status:'neutral',cont:true},
+  {name:"Hell's Kitchen",owner:'You',ok:'gold',pct:81,status:'owned',cont:false},
+  {name:'Gramercy',owner:'Sam',ok:'teal',pct:55,status:'enemy',cont:false},
 ];
-
-const CH_DATA=[
-  {id:'c1',icon:'bolt',title:'Daily Grind',desc:'Collect 50 dots today',total:50,color:'#0EB8A0',timer:'Resets midnight',reward:300,active:true},
-  {id:'c2',icon:'sun',title:'Early Bird',desc:'Collect 30 dots before 8am, 3 days running',total:3,color:'#F97316',timer:'5d left',reward:300,active:false},
-  {id:'c3',icon:'compass',title:'Explorer',desc:'Walk 5 different neighborhoods this week',total:5,color:'#38BDF8',timer:'4d left',reward:750,active:false},
-  {id:'c4',icon:'star',title:'Golden Hunter',desc:'Collect 10 golden dots this month',total:10,color:'#F0B429',timer:'18d left',reward:1500,active:false},
-  {id:'c5',icon:'users',title:'Territory King',desc:'Own 2 territories simultaneously',total:2,color:'#A78BFA',timer:'Ongoing',reward:1000,active:false},
+const CHS=[
+  {id:'c1',icon:'bolt',title:'Daily Grind',desc:'Collect 50 dots today',total:50,timer:'Resets midnight',reward:300,active:true},
+  {id:'c2',icon:'sun',title:'Early Bird',desc:'30 dots before 8am, 3 days running',total:3,timer:'Ongoing',reward:300,active:false},
+  {id:'c3',icon:'compass',title:'Explorer',desc:'Walk 5 neighborhoods this week',total:5,timer:'This week',reward:750,active:false},
+  {id:'c4',icon:'star',title:'Golden Hunter',desc:'Collect 10 golden dots this month',total:10,timer:'This month',reward:1500,active:false},
 ];
-
-const CH_ICONS={
+const CH_SVG={
   bolt:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
   sun:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
   compass:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>`,
   star:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
-  users:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`,
 };
-
-/* ══════════════════════════════════════════════
-   MAP & STATE
-══════════════════════════════════════════════ */
-mapboxgl.accessToken = MAPBOX_TOKEN;
-let map=null, playerMarker=null;
-let playerLat=null, playerLng=null;
-let dotMarkers={}, friendMarkers=[], ghostMarkers=[];
-let tracking=false, watchId=null;
-let ghostTrailOn=false;
-let dotIdCounter=0;
-
-/* NYC Landmarks for special teal dots */
-const NYC_LANDMARKS=[
-  {name:'Empire State',lat:40.7484,lng:-73.9857,pts:50},
-  {name:'Central Park',lat:40.7851,lng:-73.9683,pts:40},
-  {name:'Times Square',lat:40.7580,lng:-73.9855,pts:35},
-  {name:'Brooklyn Bridge',lat:40.7061,lng:-73.9969,pts:45},
-  {name:'High Line',lat:40.7479,lng:-74.0048,pts:30},
-  {name:'Washington Sq',lat:40.7308,lng:-73.9973,pts:30},
-  {name:'Rockefeller Ctr',lat:40.7587,lng:-73.9787,pts:35},
-  {name:'Grand Central',lat:40.7527,lng:-73.9772,pts:40},
+const LANDMARKS=[
+  {name:'Empire State',lat:40.7484,lng:-73.9857,pts:50},{name:'Central Park',lat:40.7851,lng:-73.9683,pts:40},
+  {name:'Times Square',lat:40.7580,lng:-73.9855,pts:35},{name:'Brooklyn Bridge',lat:40.7061,lng:-73.9969,pts:45},
+  {name:'High Line',lat:40.7479,lng:-74.0048,pts:30},{name:'Washington Sq',lat:40.7308,lng:-73.9973,pts:30},
+  {name:'Rockefeller Ctr',lat:40.7587,lng:-73.9787,pts:35},{name:'Grand Central',lat:40.7527,lng:-73.9772,pts:40},
+];
+const FRIENDS_CFG=[
+  {n:'Jordan K.',i:'JK',c:'#3A4A6B',spd:0.000035},{n:'Priya M.',i:'PM',c:'#2C3E50',spd:0.000028},
+  {n:'Sam W.',i:'SW',c:'#0EB8A0',spd:0.000042},{n:'Devon R.',i:'DR',c:'#253040',spd:0.000031},
 ];
 
-function initMap(lat,lng){
-  map=new mapboxgl.Map({
-    container:'map',
-    style:'mapbox://styles/mapbox/dark-v11',
-    center:[lng,lat],zoom:16.2,pitch:25,bearing:0,
-    attributionControl:true,
-  });
-  map.on('load',()=>{
-    spawnPlayerMarker(lat,lng);
-    spawnFriendMarkers(lat,lng);
-    // Wait a moment for road tiles to load before snapping dots
-    setTimeout(()=>spawnDotsAround(lat,lng),1200);
-    spawnLandmarkDots(lat,lng);
-    // Dots spawn after map is ready (handled by setTimeout in initMap)
-    updateUI();
-    updateLB('day');
-    updateTerritories();
-    updateChallenges();
-    updateRecap();
-  });
+/* MAP STATE */
+mapboxgl.accessToken=TOKEN;
+let map=null,playerMarker=null,playerLat=null,playerLng=null;
+let tracking=false,watchId=null,ghostOn=false,ghostPts=[];
+let glReady=false;
+const DOTS={};
+
+/* GRID */
+function snapGrid(lat,lng){
+  return{
+    lat:Math.round(Math.round(lat/GRID_LAT)*GRID_LAT*1e6)/1e6,
+    lng:Math.round(Math.round(lng/GRID_LNG)*GRID_LNG*1e6)/1e6,
+  };
 }
-
-/* ── Player ── */
-function spawnPlayerMarker(lat,lng){
-  const el=document.createElement('div');
-  el.className='player-marker-el';
-  el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="playerPin">${store.initials}</div>`;
-  playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
+function dotId(lat,lng){const g=snapGrid(lat,lng);return`d_${Math.round(g.lat*10000)}_${Math.round(g.lng*10000)}`;}
+function dotType(id){
+  let h=0;for(let i=0;i<id.length;i++)h=(Math.imul(31,h)+id.charCodeAt(i))|0;
+  return Math.abs(h)%100<GOLD_PCT?{type:'golden',pts:10}:{type:'regular',pts:1};
 }
-function movePlayer(lat,lng){
-  playerLat=lat;playerLng=lng;
-  if(playerMarker)playerMarker.setLngLat([lng,lat]);
-  checkCollections(lat,lng);
-  updateNearby(lat,lng);
-  if(ghostTrailOn)addGhostTrailPoint(lat,lng);
-  if(!movePlayer._geo||Date.now()-movePlayer._geo>10000){
-    movePlayer._geo=Date.now();
-    reverseGeocode(lat,lng);
-  }
-}
-
-/* ── Live simulated beta users ──
-   Each user walks a semi-realistic path near the player,
-   updating every few seconds. Their dots score count increments
-   as they "collect" along their route. */
-const BETA_USERS=[
-  {name:'Jordan K.',initials:'JK',color:'#3A4A6B',score:412,speed:0.000035,dir:Math.random()*Math.PI*2},
-  {name:'Priya M.',initials:'PM',color:'#2C3E50',score:388,speed:0.000028,dir:Math.random()*Math.PI*2},
-  {name:'Sam W.',initials:'SW',color:'#0EB8A0',score:189,speed:0.000042,dir:Math.random()*Math.PI*2},
-  {name:'Devon R.',initials:'DR',color:'#253040',score:210,speed:0.000031,dir:Math.random()*Math.PI*2},
-];
-
-function spawnFriendMarkers(lat,lng){
-  const spread=0.006;
-  BETA_USERS.forEach((u,i)=>{
-    const angle=(i/BETA_USERS.length)*Math.PI*2;
-    const dist=0.002+Math.random()*spread;
-    u.lat=lat+Math.sin(angle)*dist;
-    u.lng=lng+Math.cos(angle)*dist;
-    u.baseLat=lat;u.baseLng=lng;
-
-    const el=document.createElement('div');
-    el.className='friend-marker-el';
-    el.innerHTML=`
-      <div class="friend-pin" style="background:${u.color}" id="fpin_${i}">${u.initials}</div>
-      <div class="friend-label" id="flbl_${i}">${u.name} · ${u.score}</div>`;
-    u.marker=new mapboxgl.Marker({element:el,anchor:'bottom'})
-      .setLngLat([u.lng,u.lat]).addTo(map);
-    u.el=el;
-    friendMarkers.push(u.marker);
-  });
-  // Start their movement loop
-  setInterval(()=>moveBetaUsers(),3500);
-}
-
-function moveBetaUsers(){
-  if(!map)return;
-  BETA_USERS.forEach((u,i)=>{
-    // Gradually change direction — simulate walking on streets
-    u.dir+=( Math.random()-.5)*0.4;
-    // Occasionally snap to 90° increments (street grid)
-    if(Math.random()<0.3)u.dir=Math.round(u.dir/(Math.PI/2))*(Math.PI/2);
-
-    const newLat=u.lat+Math.sin(u.dir)*u.speed*3500;
-    const newLng=u.lng+Math.cos(u.dir)*u.speed*3500;
-
-    // Keep within ~800m of player
-    const dist=haversineM(playerLat||u.baseLat,playerLng||u.baseLng,newLat,newLng);
-    if(dist>900){
-      // Turn back toward player
-      u.dir=Math.atan2(
-        (playerLat||u.baseLat)-u.lat,
-        (playerLng||u.baseLng)-u.lng
-      )+( Math.random()-.5)*0.8;
-    } else {
-      u.lat=newLat;u.lng=newLng;
-    }
-
-    u.marker.setLngLat([u.lng,u.lat]);
-
-    // Occasionally increment their score (they're collecting dots)
-    if(Math.random()<0.35){
-      u.score+=Math.floor(Math.random()*3)+1;
-      const lbl=document.getElementById(`flbl_${i}`);
-      if(lbl)lbl.textContent=`${u.name} · ${u.score}`;
-    }
-  });
-}
-
-/* ── Ghost trail ── */
-let ghostTrailPoints=[];
-function addGhostTrailPoint(lat,lng){
-  if(ghostTrailPoints.length>0){
-    const last=ghostTrailPoints[ghostTrailPoints.length-1];
-    if(haversineM(lat,lng,last.lat,last.lng)<5)return;
-  }
-  const el=document.createElement('div');
-  el.className='ghost-trail-el';
-  el.style.background='#F0B429';
-  const m=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
-  ghostTrailPoints.push({lat,lng,marker:m});
-  if(ghostTrailPoints.length>60){
-    const old=ghostTrailPoints.shift();
-    old.marker.remove();
-  }
-}
-function clearGhostTrail(){
-  ghostTrailPoints.forEach(p=>p.marker.remove());
-  ghostTrailPoints=[];
-}
-function toggleGhostTrail(){
-  ghostTrailOn=!ghostTrailOn;
-  const icon=document.getElementById('ghostIcon');
-  if(ghostTrailOn){
-    icon.style.stroke='var(--gold)';
-    showToast(ICONS.walk,'Ghost trail ON — your path is now visible');
-  } else {
-    icon.style.stroke='';
-    clearGhostTrail();
-    showToast(ICONS.warn,'Ghost trail OFF');
-  }
-}
-
-/* ── Dots ── */
-function haversineM(lat1,lng1,lat2,lng2){
+function hav(lat1,lng1,lat2,lng2){
   const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
-function offset(lat,lng,dLat,dLng){
-  return{lat:lat+(dLat/111320),lng:lng+(dLng/(111320*Math.cos(lat*Math.PI/180)))};
+
+/* GL LAYERS */
+function initGL(){
+  if(!map||map.getSource('dots'))return;
+  map.addSource('dots',{type:'geojson',data:buildGJ()});
+  map.addLayer({id:'dots-reg',type:'circle',source:'dots',
+    filter:['all',['==',['get','type'],'regular'],['==',['get','eaten'],false]],
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],'circle-color':'#0EB8A0','circle-opacity':0.88,'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.18)'}});
+  map.addLayer({id:'dots-gold',type:'circle',source:'dots',
+    filter:['all',['==',['get','type'],'golden'],['==',['get','eaten'],false]],
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,5,16,8,19,11],'circle-color':'#F0B429','circle-opacity':1,'circle-stroke-width':2,'circle-stroke-color':'#FFD166'}});
+  map.addLayer({id:'dots-lm',type:'circle',source:'dots',
+    filter:['all',['==',['get','type'],'landmark'],['==',['get','eaten'],false]],
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,7,16,11,19,15],'circle-color':'#ffffff','circle-opacity':1,'circle-stroke-width':3,'circle-stroke-color':'#0EB8A0'}});
+  map.addLayer({id:'dots-eaten',type:'circle',source:'dots',
+    filter:['==',['get','eaten'],true],
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,2.5,16,4,19,6],'circle-color':'rgba(255,255,255,0)','circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.13)'}});
+  glReady=true;
 }
 
-/* ── Road-snapped dot spawning ──
-   Uses Mapbox Tilequery API to find actual road coordinates,
-   then places dots along those roads. Guaranteed to be on streets.
-   Falls back to grid-on-roads if API unavailable. */
-let spawnInProgress=false;
-let spawnedZones=new Set(); // track which zones we've already spawned
+function buildGJ(){
+  return{type:'FeatureCollection',features:Object.values(DOTS).map(d=>({
+    type:'Feature',geometry:{type:'Point',coordinates:[d.lng,d.lat]},
+    properties:{id:d.id,type:d.type,pts:d.pts,label:d.label||'',eaten:!!S.eatenIds[d.id]},
+  }))};
+}
 
-async function spawnDotsAround(lat,lng){
-  if(!map||spawnInProgress)return;
-  // Zone key — only respawn if we've moved significantly
-  const zoneKey=`${Math.round(lat*200)}_${Math.round(lng*200)}`;
-  if(spawnedZones.has(zoneKey))return;
-  spawnedZones.add(zoneKey);
-  spawnInProgress=true;
-  try{
-    await spawnDotsOnRoads(lat,lng);
-  }catch(e){
-    console.log('Road API failed, using fallback:',e);
-    spawnDotsGrid(lat,lng);
+function refreshGL(){if(!glReady||!map||!map.getSource('dots'))return;map.getSource('dots').setData(buildGJ());}
+
+/* ROAD CACHE */
+const roadCache=new Set();
+let roadCacheBuilt=false;
+
+function buildRoadCache(){
+  if(!map||!map.isStyleLoaded())return;
+  const all=map.getStyle().layers.map(l=>l.id);
+  const wk=all.filter(id=>{const l=id.toLowerCase();return l.includes('road')||l.includes('path')||l.includes('pedestrian')||l.includes('footway')||l.includes('walk')||l.includes('cycleway')||l.includes('steps')||l.includes('trail');});
+  if(!wk.length)return;
+  const EX=new Set(['motorway','motorway_link','trunk','trunk_link','ferry']);
+  let features=[];
+  try{features=map.queryRenderedFeatures(undefined,{layers:wk});}catch(e){}
+  const W=map.getCanvas().width/(devicePixelRatio||1),H=map.getCanvas().height/(devicePixelRatio||1);
+  [[W*.2,H*.2],[W*.5,H*.2],[W*.8,H*.2],[W*.2,H*.5],[W*.5,H*.5],[W*.8,H*.5],[W*.2,H*.8],[W*.5,H*.8],[W*.8,H*.8]].forEach(pt=>{
+    try{map.queryRenderedFeatures(pt,{layers:wk}).forEach(f=>{if(!features.find(x=>x.id===f.id))features.push(f);});}catch(e){}
+  });
+  features.forEach(f=>{
+    if(!f.geometry)return;
+    const cls=(f.properties?.class||f.properties?.type||'').toLowerCase();
+    if(EX.has(cls))return;
+    const lines=f.geometry.type==='LineString'?[f.geometry.coordinates]:f.geometry.type==='MultiLineString'?f.geometry.coordinates:[];
+    lines.forEach(coords=>coords.forEach(([lng,lat])=>{const g=snapGrid(lat,lng);roadCache.add(`${g.lat}_${g.lng}`);}));
+  });
+  roadCacheBuilt=roadCache.size>0;
+}
+
+function nearRoad(lat,lng){
+  if(!roadCacheBuilt)return true;
+  const g=snapGrid(lat,lng);
+  for(let dl=-1;dl<=1;dl++)for(let dg=-1;dg<=1;dg++){
+    const tl=Math.round((g.lat+dl*GRID_LAT)*1e6)/1e6,tg=Math.round((g.lng+dg*GRID_LNG)*1e6)/1e6;
+    if(roadCache.has(`${tl}_${tg}`))return true;
   }
-  spawnInProgress=false;
+  return false;
+}
+
+/* SPAWN DOTS */
+function spawnDots(lat,lng){
+  if(!map||!glReady)return;
+  buildRoadCache();
+  const latS=Math.ceil(SPAWN_M/(GRID_LAT*111320)),lngS=Math.ceil(SPAWN_M/(GRID_LNG*111320));
+  const o=snapGrid(lat,lng);let added=0;
+  for(let dl=-latS;dl<=latS;dl++)for(let dg=-lngS;dg<=lngS;dg++){
+    const cLat=Math.round((o.lat+dl*GRID_LAT)*1e6)/1e6,cLng=Math.round((o.lng+dg*GRID_LNG)*1e6)/1e6;
+    if(hav(lat,lng,cLat,cLng)>SPAWN_M)continue;
+    if(!nearRoad(cLat,cLng))continue;
+    const id=dotId(cLat,cLng);if(DOTS[id])continue;
+    const{type,pts}=dotType(id);DOTS[id]={id,lat:cLat,lng:cLng,type,pts,label:null};added++;
+  }
+  if(added>0)refreshGL();
   updateNearby(lat,lng);
 }
 
-async function spawnDotsOnRoads(lat,lng){
-  // Use Mapbox Tilequery API — returns actual road/path features at real coordinates
-  // This is the reliable way: ask Mapbox "what roads are here?" instead of parsing tiles
-  const radius=Math.min(SPAWN_RADIUS_M,500); // max 500m per tilequery request
-  const url=`https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${lng},${lat}.json?radius=${radius}&limit=50&dedupe&geometry=linestring&layers=road&access_token=${MAPBOX_TOKEN}`;
-  
-  const resp=await fetch(url);
-  if(!resp.ok)throw new Error('Tilequery failed: '+resp.status);
-  const data=await resp.json();
-  
-  if(!data.features||data.features.length<2){
-    throw new Error('No road features returned');
-  }
-
-  const placed=new Set();
-  let count=0;
-
-  // For each road feature returned, interpolate dot positions along it
-  data.features.forEach(feature=>{
-    if(count>200)return;
-    const geom=feature.geometry;
-    if(!geom)return;
-
-    // Tilequery returns the nearest point on the road, not the full line
-    // So we place a dot at each returned coordinate
-    if(geom.type==='Point'){
-      const[fLng,fLat]=geom.coordinates;
-      const dist=haversineM(lat,lng,fLat,fLng);
-      if(dist>SPAWN_RADIUS_M)return;
-      const key=`${Math.round(fLat*4000)}_${Math.round(fLng*4000)}`;
-      if(placed.has(key))return;
-      placed.add(key);
-      const id=`rdot_${Math.round(fLat*4000)}_${Math.round(fLng*4000)}`;
-      if(store.eatenIds[id]||dotMarkers[id])return;
-      const golden=Math.random()<GOLDEN_CHANCE;
-      const bonus=!golden&&Math.random()<BONUS_CHANCE;
-      const type=golden?'golden':bonus?'bonus':'regular';
-      const pts=golden?25:bonus?5:1;
-      placeDot(id,fLat,fLng,type,pts);
-      count++;
-    }
+function spawnLM(lat,lng){
+  LANDMARKS.forEach((lm,i)=>{
+    const id=`lm_${i}`;if(DOTS[id])return;
+    if(hav(lat,lng,lm.lat,lm.lng)>6000)return;
+    DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name};
   });
-
-  // Tilequery only returns 50 features max — supplement with grid-on-roads
-  // by fetching multiple points in a pattern around the player
-  const angles=[0,45,90,135,180,225,270,315];
-  const radii=[80,160,250,350,450];
-  
-  const extraFetches=[];
-  for(const dist of radii){
-    for(const angle of angles){
-      const rad=angle*Math.PI/180;
-      const pLat=lat+Math.sin(rad)*dist/111320;
-      const pLng=lng+Math.cos(rad)*dist/(111320*Math.cos(lat*Math.PI/180));
-      extraFetches.push({lat:pLat,lng:pLng});
-    }
-  }
-
-  // Batch fetch — do 8 at a time with small delays to respect rate limits
-  for(let i=0;i<Math.min(extraFetches.length,16);i+=8){
-    const batch=extraFetches.slice(i,i+8);
-    await Promise.all(batch.map(async p=>{
-      try{
-        const u=`https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${p.lng},${p.lat}.json?radius=40&limit=3&dedupe&geometry=linestring&layers=road&access_token=${MAPBOX_TOKEN}`;
-        const r=await fetch(u);
-        if(!r.ok)return;
-        const d=await r.json();
-        if(!d.features)return;
-        d.features.forEach(f=>{
-          if(f.geometry?.type!=='Point')return;
-          const[fLng,fLat]=f.geometry.coordinates;
-          const distFromPlayer=haversineM(lat,lng,fLat,fLng);
-          if(distFromPlayer>SPAWN_RADIUS_M)return;
-          const key=`${Math.round(fLat*4000)}_${Math.round(fLng*4000)}`;
-          if(placed.has(key))return;
-          placed.add(key);
-          const id=`rdot_${Math.round(fLat*4000)}_${Math.round(fLng*4000)}`;
-          if(store.eatenIds[id]||dotMarkers[id])return;
-          const golden=Math.random()<GOLDEN_CHANCE;
-          const bonus=!golden&&Math.random()<BONUS_CHANCE;
-          const type=golden?'golden':bonus?'bonus':'regular';
-          const pts=golden?25:bonus?5:1;
-          placeDot(id,fLat,fLng,type,pts);
-          count++;
-        });
-      }catch(e){}
-    }));
-    await new Promise(r=>setTimeout(r,120)); // small delay between batches
-  }
-
-  if(count<10)spawnDotsGrid(lat,lng);
+  refreshGL();
 }
 
-function spawnDotsGrid(lat,lng){
-  // Fallback: grid placement (original method)
-  const steps=Math.ceil(SPAWN_RADIUS_M/DOT_SPACING_M);
-  for(let dx=-steps;dx<=steps;dx++){
-    for(let dy=-steps;dy<=steps;dy++){
-      const dxM=dx*DOT_SPACING_M,dyM=dy*DOT_SPACING_M;
-      if(Math.sqrt(dxM*dxM+dyM*dyM)>SPAWN_RADIUS_M)continue;
-      const jx=(Math.random()-.5)*DOT_SPACING_M*.6;
-      const jy=(Math.random()-.5)*DOT_SPACING_M*.6;
-      const pos=offset(lat,lng,dyM+jy,dxM+jx);
-      const id=`dot_${dotIdCounter++}`;
-      if(store.eatenIds[id]||dotMarkers[id])continue;
-      const golden=Math.random()<GOLDEN_CHANCE;
-      const bonus=!golden&&Math.random()<BONUS_CHANCE;
-      const type=golden?'golden':bonus?'bonus':'regular';
-      const pts=golden?25:bonus?5:1;
-      placeDot(id,pos.lat,pos.lng,type,pts);
-    }
-  }
-}
-
-function spawnLandmarkDots(lat,lng){
-  NYC_LANDMARKS.forEach((lm,i)=>{
-    const id=`landmark_${i}`;
-    if(store.eatenIds[id]||dotMarkers[id])return;
-    // Only show if within 5km
-    if(haversineM(lat,lng,lm.lat,lm.lng)>5000)return;
-    placeDot(id,lm.lat,lm.lng,'landmark',lm.pts,lm.name);
+/* COLLECT */
+function checkCollect(lat,lng){
+  Object.values(DOTS).forEach(d=>{
+    if(S.eatenIds[d.id])return;
+    if(hav(lat,lng,d.lat,d.lng)<=COLLECT_M)collect(d);
   });
 }
 
-function placeDot(id,lat,lng,type,pts,label){
-  const el=document.createElement('div');
-  el.className=`dot-marker ${type==='golden'?'golden':type==='bonus'?'bonus':type==='landmark'?'landmark':''}`;
-  if(store.eatenIds[id])el.className='dot-marker eaten';
-  // tap-to-collect disabled — walk to collect only
+function collect(d){
+  if(S.eatenIds[d.id])return;
+  S.eatenIds[d.id]=true;
+  S.todayDots+=d.pts;S.weekDots+=d.pts;S.allDots+=d.pts;S.walkedToday=true;
+  S.collectedToday.unshift({pts:d.pts,lat:d.lat,lng:d.lng,type:d.type,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
+  if(S.collectedToday.length>100)S.collectedToday.pop();
+  const c1=S.challenges?.find(c=>c.id==='c1');
+  if(c1&&!c1.done){c1.prog=S.todayDots;if(c1.prog>=c1.total){c1.done=true;showToast(ICO.star,'Challenge complete! +300 pts');}}
+  if(d.type==='golden'){const c4=S.challenges?.find(c=>c.id==='c4');if(c4&&!c4.done)c4.prog++;}
+  save();refreshGL();updateUI();renderCh();updateTrail();
+  burst(d.lng,d.lat,d.type);
+  if(d.type==='golden')showToast(ICO.star,`Golden dot! +${d.pts} pts`);
+  else if(d.type==='landmark')showToast(ICO.teal,`${d.label} — +${d.pts} pts!`);
+  nudge();
+}
+
+/* TRAIL */
+function updateTrail(){
+  if(!map||S.collectedToday.length<2)return;
+  const coords=S.collectedToday.slice().reverse().map(c=>[c.lng,c.lat]);
+  if(coords.length<2)return;
+  try{
+    if(map.getSource('trail'))map.getSource('trail').setData({type:'Feature',geometry:{type:'LineString',coordinates:coords}});
+    else{
+      map.addSource('trail',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
+      map.addLayer({id:'trail',type:'line',source:'trail',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'#F0B429','line-width':3,'line-opacity':0.38,'line-dasharray':[2,5]}});
+    }
+  }catch(e){}
+}
+
+/* MAP INIT */
+function initMap(lat,lng){
+  map=new mapboxgl.Map({container:'map',style:'mapbox://styles/mapbox/dark-v11',center:[lng,lat],zoom:16,pitch:20,bearing:0,attributionControl:true});
+  map.on('load',()=>{
+    // Player marker
+    const el=document.createElement('div');el.className='player-el';
+    el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${S.initials||'?'}</div>`;
+    playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
+    // Friends
+    spawnFriends(lat,lng);
+    // GL dots
+    initGL();
+    // Spawn after tiles load
+    setTimeout(()=>{spawnDots(lat,lng);spawnLM(lat,lng);refreshGL();updateTrail();},1500);
+    updateUI();renderLB('day');renderTerr();renderCh();renderRecap();
+  });
+}
+
+/* FRIENDS */
+function spawnFriends(lat,lng){
+  FRIENDS_CFG.forEach((f,i)=>{
+    const ang=(i/FRIENDS_CFG.length)*Math.PI*2;
+    f.lat=lat+Math.sin(ang)*0.004;f.lng=lng+Math.cos(ang)*0.004;
+    f.baseLat=lat;f.baseLng=lng;f.dir=Math.random()*Math.PI*2;
+    const el=document.createElement('div');el.className='friend-el';
+    el.innerHTML=`<div class="friend-pin" style="background:${f.c}" id="fp${i}">${f.i}</div><div class="friend-lbl" id="fl${i}">${f.n}</div>`;
+    f.marker=new mapboxgl.Marker({element:el,anchor:'bottom'}).setLngLat([f.lng,f.lat]).addTo(map);
+  });
+  setInterval(()=>{
+    if(!map)return;
+    FRIENDS_CFG.forEach((f,i)=>{
+      f.dir+=(Math.random()-.5)*.5;
+      if(Math.random()<.3)f.dir=Math.round(f.dir/(Math.PI/2))*(Math.PI/2);
+      const nLat=f.lat+Math.sin(f.dir)*f.spd*3500,nLng=f.lng+Math.cos(f.dir)*f.spd*3500;
+      if(hav(f.baseLat,f.baseLng,nLat,nLng)<800){f.lat=nLat;f.lng=nLng;}
+      else f.dir=Math.atan2(f.baseLat-f.lat,f.baseLng-f.lng)+(Math.random()-.5)*.8;
+      f.marker.setLngLat([f.lng,f.lat]);
+    });
+  },3500);
+}
+
+/* GHOST TRAIL */
+function toggleGhost(){
+  ghostOn=!ghostOn;
+  document.getElementById('ghostIcon').style.stroke=ghostOn?'var(--gold)':'';
+  if(!ghostOn){ghostPts.forEach(p=>p.remove());ghostPts=[];showToast(ICO.warn,'Ghost trail OFF');}
+  else showToast(ICO.walk,'Ghost trail ON — your path is visible');
+}
+function addGhost(lat,lng){
+  if(!ghostOn||!map)return;
+  if(ghostPts.length>0&&hav(lat,lng,ghostPts[ghostPts.length-1]._lat,ghostPts[ghostPts.length-1]._lng)<8)return;
+  const el=document.createElement('div');el.style.cssText='width:8px;height:8px;border-radius:50%;background:rgba(240,180,41,0.35)';
   const m=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
-  dotMarkers[id]={marker:m,lat,lng,type,pts,label,el};
+  m._lat=lat;m._lng=lng;ghostPts.push(m);
+  if(ghostPts.length>80)ghostPts.shift().remove();
 }
 
-function checkCollections(lat,lng){
-  Object.entries(dotMarkers).forEach(([id,d])=>{
-    if(store.eatenIds[id])return;
-    if(haversineM(lat,lng,d.lat,d.lng)<=COLLECT_RADIUS_M)
-      collectDot(id,d.lat,d.lng,d.type,d.pts,d.label,false);
-  });
-}
-
-function collectDot(id,lat,lng,type,pts,label,tapped){
-  if(store.eatenIds[id])return;
-  store.eatenIds[id]=true;
-  store.todayDots+=pts;store.weekDots+=pts;store.totalDots+=pts;
-  store.walkedToday=true;
-  store.collectedToday.unshift({pts,lat,lng,type,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
-  if(store.collectedToday.length>100)store.collectedToday.pop();
-
-  // Challenge progress
-  if(!store.challenges)store.challenges=freshChallenges();
-  const daily=store.challenges.find(c=>c.id==='c1');
-  if(daily&&!daily.done){daily.prog=store.todayDots;if(daily.prog>=daily.total){daily.done=true;showToast(ICONS.star,'Challenge complete! +300 pts');}}
-  if(type==='golden'){const gc=store.challenges.find(c=>c.id==='c4');if(gc&&!gc.done){gc.prog++;}}
-
-  save();
-  const d=dotMarkers[id];if(d)d.el.className='dot-marker eaten';
-  const sp=lngLatToScreen(lng,lat);
-  if(sp){spawnBurst(sp.x,sp.y,type==='golden'?'#FFD166':type==='landmark'?'#0EB8A0':'#F0B429');spawnScorePop(sp.x,sp.y,pts,type);}
-  if(type==='golden')showToast(ICONS.star,`Golden dot — +${pts} pts!`);
-  else if(type==='landmark')showToast(ICONS.teal,`${label||'Landmark'} — +${pts} pts!`);
-  updateUI();updateChallenges();
-  // Competitive nudges
-  maybeNudge();
-}
-
-function lngLatToScreen(lng,lat){
-  if(!map)return null;
-  try{const p=map.project([lng,lat]);return{x:p.x,y:p.y};}catch(e){return null;}
-}
-
-/* ── Nudge toasts ── */
-let lastNudge=0;
-const NUDGES=[
-  [ICONS.warn,'Jordan is only 8 dots ahead — keep going!'],
-  [ICONS.fire,'You\'re on a roll — 3 dots in 60 seconds!'],
-  [ICONS.map,'You\'re entering a high-density dot zone'],
-  [ICONS.warn,'Priya just took Chelsea territory — reclaim it!'],
-  [ICONS.trophy,'Personal best pace today — stay consistent!'],
-];
-let nudgeIdx=0;
-function maybeNudge(){
-  if(Date.now()-lastNudge<45000)return;
-  if(Math.random()>0.25)return;
-  lastNudge=Date.now();
-  const[ic,msg]=NUDGES[nudgeIdx%NUDGES.length];nudgeIdx++;
-  showToast(ic,msg);
-}
-
-/* ══════════════════════════════════════════════
-   GEOLOCATION
-══════════════════════════════════════════════ */
-function requestLocation(){
-  document.getElementById('permScreen').classList.add('hidden');
-  if(!('geolocation'in navigator)){setGPS('error','GPS unavailable');return;}
+/* GEO */
+function startApp(){
+  document.getElementById('perm').classList.add('gone');
+  if(!('geolocation'in navigator)){useDemo();return;}
   setGPS('searching','Searching…');
   navigator.geolocation.getCurrentPosition(
     pos=>{
       const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
       playerLat=lat;playerLng=lng;
       setGPS('active',`±${Math.round(acc)}m`);
-      initMap(lat,lng);
-      askInitials();
+      initMap(lat,lng);geoName(lat,lng);askInit();
     },
-    _=>{
-      setGPS('error','Using demo · NYC');
-      const lat=40.7549,lng=-73.9840;
-      playerLat=lat;playerLng=lng;
-      document.getElementById('locLabel').textContent='Demo Mode · NYC';
-      initMap(lat,lng);
-      showToast(ICONS.warn,'Location denied — using NYC demo');
-    },
+    ()=>useDemo(),
     {enableHighAccuracy:true,timeout:15000,maximumAge:0}
   );
 }
-
+function useDemo(){
+  const lat=40.7549,lng=-73.9840;playerLat=lat;playerLng=lng;
+  setGPS('error','Demo · NYC');document.getElementById('locLbl').textContent='Demo Mode · NYC';
+  initMap(lat,lng);showToast(ICO.warn,'Location denied — using NYC demo');askInit();
+}
 function startWatch(){
   if(watchId!==null)return;
-  watchId=navigator.geolocation.watchPosition(
-    pos=>{
-      const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
-      setGPS('active',`±${Math.round(acc)}m`);
-      movePlayer(lat,lng);
-      if(!startWatch._last)startWatch._last={lat,lng};
-      if(haversineM(lat,lng,startWatch._last.lat,startWatch._last.lng)>DOT_SPACING_M*8){
-        spawnDotsAround(lat,lng);spawnLandmarkDots(lat,lng);
-        startWatch._last={lat,lng};
-      }
-    },
-    _=>setGPS('error','GPS lost'),
-    {enableHighAccuracy:true,maximumAge:2000,timeout:20000}
-  );
+  watchId=navigator.geolocation.watchPosition(pos=>{
+    const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
+    setGPS('active',`±${Math.round(acc)}m`);
+    playerLat=lat;playerLng=lng;
+    if(playerMarker)playerMarker.setLngLat([lng,lat]);
+    checkCollect(lat,lng);updateNearby(lat,lng);addGhost(lat,lng);
+    if(!startWatch._geo||Date.now()-startWatch._geo>12000){startWatch._geo=Date.now();geoName(lat,lng);}
+    if(!startWatch._last)startWatch._last={lat,lng};
+    if(hav(lat,lng,startWatch._last.lat,startWatch._last.lng)>180){
+      startWatch._last={lat,lng};
+      setTimeout(()=>{roadCacheBuilt=false;buildRoadCache();spawnDots(lat,lng);spawnLM(lat,lng);},900);
+    }
+  },()=>setGPS('error','GPS lost'),{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
 }
 function stopWatch(){if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}}
-function setGPS(s,t){document.getElementById('gpsBadge').className=`gps-badge ${s}`;document.getElementById('gpsLabel').textContent=t;}
-
-async function reverseGeocode(lat,lng){
+function setGPS(s,t){document.getElementById('gpsBadge').className=`gps-badge ${s}`;document.getElementById('gpsLbl').textContent=t;}
+async function geoName(lat,lng){
   try{
-    const r=await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=neighborhood,locality&access_token=${MAPBOX_TOKEN}`);
-    const d=await r.json();
-    if(d.features?.length)document.getElementById('locLabel').textContent=d.features[0].text;
+    const r=await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=neighborhood,locality&access_token=${TOKEN}`);
+    const d=await r.json();if(d.features?.length)document.getElementById('locLbl').textContent=d.features[0].text;
   }catch(e){}
 }
 
-/* ══════════════════════════════════════════════
-   WALK TOGGLE
-══════════════════════════════════════════════ */
+/* WALK TOGGLE */
 function toggleWalk(){
   tracking=!tracking;
   const btn=document.getElementById('walkBtn');
   if(tracking){
-    btn.classList.add('active');
-    document.getElementById('walkLabel').textContent='Stop Walk';
-    startWatch();centerOnPlayer();
-    if(!store.streak)store.streak=1;
-    save();updateUI();
-    showToast(ICONS.walk,'Walk started — collect everything!');
+    btn.classList.add('active');document.getElementById('walkLbl').textContent='Stop Walk';
+    startWatch();centerMap();if(!S.streak)S.streak=1;save();updateUI();
+    showToast(ICO.walk,'Walk started — collect everything!');
   }else{
-    btn.classList.remove('active');
-    document.getElementById('walkLabel').textContent='Start Walk';
+    btn.classList.remove('active');document.getElementById('walkLbl').textContent='Start Walk';
     stopWatch();setGPS('searching','Paused');
   }
 }
+function centerMap(){if(map&&playerLng!==null)map.flyTo({center:[playerLng,playerLat],zoom:16,speed:1.2});}
 
-function centerOnPlayer(){if(map&&playerLng!==null)map.flyTo({center:[playerLng,playerLat],zoom:16.2,speed:1.2});}
-
-/* ══════════════════════════════════════════════
-   UI
-══════════════════════════════════════════════ */
-function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n)}
-
+/* UI */
+function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n);}
 function updateUI(){
-  // Force number display — never show stale values
-  const td=store.todayDots||0;
-  const wd=store.weekDots||0;
-  const tot=store.totalDots||0;
-  document.getElementById('todayScore').textContent=fmt(td);
-  document.getElementById('weekScore').textContent=fmt(wd);
-  document.getElementById('totalScore').textContent=fmt(tot);
-  document.getElementById('tallyBig').textContent=td;
-  document.getElementById('streakVal').textContent=store.streak||0;
-  document.getElementById('streakBig').textContent=store.streak||0;
-  const pin=document.getElementById('playerPin');if(pin)pin.textContent=store.initials||'?';
-  document.getElementById('avBtn').textContent=store.initials||'?';
-  // Challenge banner
-  const daily=store.challenges?.find(c=>c.id==='c1');
-  if(daily){
-    document.getElementById('chBannerSub').textContent=`${store.todayDots} / ${daily.total} · expires midnight`;
-    const pct=Math.min(100,Math.round(store.todayDots/daily.total*100));
-    document.getElementById('chBannerBar').style.width=pct+'%';
-  }
-  // Streak warning
-  if(store.streak>0){
-    const h=new Date().getHours();
-    if(h>=20)document.getElementById('streakSub').textContent=`Streak at risk — walk tonight to keep it!`;
-    else document.getElementById('streakSub').textContent=`Dots reset at midnight · keep moving`;
-  }
+  document.getElementById('scoreToday').textContent=fmt(S.todayDots);
+  document.getElementById('scoreWeek').textContent=fmt(S.weekDots);
+  document.getElementById('scoreAll').textContent=fmt(S.allDots);
+  document.getElementById('tallyNum').textContent=S.todayDots;
+  document.getElementById('streakVal').textContent=S.streak;
+  document.getElementById('streakBig').textContent=S.streak;
+  const pin=document.getElementById('ppin');if(pin)pin.textContent=S.initials||'?';
+  document.getElementById('avBtn').textContent=S.initials||'?';
+  document.getElementById('chSub').textContent=`${S.todayDots} / 50 · resets midnight`;
+  document.getElementById('chBar').style.width=Math.min(100,S.todayDots/50*100)+'%';
+  if(S.streak>0&&new Date().getHours()>=20)document.getElementById('streakSub').textContent='Streak at risk — walk tonight!';
 }
-
 function updateNearby(lat,lng){
-  const keys=Object.keys(dotMarkers);
-  const count=keys.filter(id=>!store.eatenIds[id]&&haversineM(lat,lng,dotMarkers[id].lat,dotMarkers[id].lng)<80).length;
-  document.getElementById('nearbyCount').textContent=count;
+  const n=Object.values(DOTS).filter(d=>!S.eatenIds[d.id]&&hav(lat,lng,d.lat,d.lng)<80).length;
+  document.getElementById('nearbyCount').textContent=n;
 }
 
-/* ── Leaderboard ── */
-function buildLBList(friends){
-  // Insert user into sorted position
-  const me={n:'You',loc:'Here',score:store.todayDots,av:store.initials||'?',c:'#F0B429',you:true,terr:'Midtown'};
-  const all=[...friends,me].sort((a,b)=>b.score-a.score);
-  return all;
+/* SHEET */
+let sheetOpen=true;
+function toggleSheet(){
+  sheetOpen=!sheetOpen;
+  const sheet=document.getElementById('sheet');
+  sheet.classList.toggle('collapsed',!sheetOpen);
+  const ww=document.getElementById('walkWrap'),fb=document.getElementById('fabs');
+  if(sheetOpen){ww.style.bottom='';fb.style.bottom='';}
+  else{ww.style.bottom='calc(var(--sb) + 66px)';fb.style.bottom='calc(var(--sb) + 66px)';}
 }
-function updateLB(period){
-  const raw=period==='day'?FRIENDS_DAY:period==='week'?FRIENDS_WEEK:FRIENDS_MONTH;
-  const list=period==='day'?buildLBList(raw):raw;
-  const sc=document.getElementById('lbScroll');sc.innerHTML='';
-  list.forEach((e,i)=>{
-    const d=document.createElement('div');
-    d.className=`lb-card ${e.you?'you':''} ${i===0?'r1':''}`;
-    if(i===0)d.style.cssText+='border-color:rgba(240,180,41,0.4)';
-    d.innerHTML=`
-      <div class="lbc-rank">#${i+1}</div>
-      <div class="lbc-top">
-        <div class="lbc-av" style="background:${e.c};color:${e.you?'#1a1200':'rgba(238,240,246,0.7)'}">${e.av}</div>
-        <div><div class="lbc-name">${e.n}${e.you?'<span class="you-pip"></span>':''}</div><div class="lbc-loc">${e.loc}</div></div>
-      </div>
-      <div><span class="lbc-score">${e.score.toLocaleString()}</span><span class="lbc-unit">dots</span></div>
-      <div class="lbc-terr"><div style="width:5px;height:5px;border-radius:50%;background:${e.you?'var(--gold)':'var(--teal)'};flex-shrink:0"></div>${e.terr||'–'}</div>`;
-    sc.appendChild(d);
-  });
-}
-function setLBTab(el,p){
-  el.closest('.sub-tabs').querySelectorAll('.stab').forEach(s=>s.classList.remove('on'));
-  el.classList.add('on');updateLB(p);
-}
-
-/* ── Territories ── */
-function updateTerritories(){
-  const sc=document.getElementById('terrScroll');sc.innerHTML='';
-  TERRITORIES_DATA.forEach(t=>{
-    const owned=t.status==='owned';
-    const barC=owned?'var(--gold)':t.ownerKey==='teal'?'var(--teal)':'rgba(255,255,255,0.2)';
-    const dotC=owned?'var(--gold)':t.ownerKey==='teal'?'var(--teal)':'rgba(255,255,255,0.3)';
-    const d=document.createElement('div');
-    d.className=`terr-card ${owned?'owned':''} ${t.contested?'contested':''}`;
-    d.innerHTML=`
-      ${owned?'<div class="terr-badge yours">Yours</div>':t.contested?'<div class="terr-badge cont">Contested</div>':''}
-      <div class="terr-name">${t.name}</div>
-      <div class="terr-owner"><div style="width:6px;height:6px;border-radius:50%;background:${dotC};flex-shrink:0"></div>${t.owner}</div>
-      <div class="terr-bar-bg"><div class="terr-bar-fill" style="width:${t.pct}%;background:${barC}"></div></div>
-      <div class="terr-pct">${t.pct}% coverage</div>`;
-    sc.appendChild(d);
-  });
-}
-
-/* ── Challenges ── */
-function updateChallenges(){
-  const sc=document.getElementById('chScroll');sc.innerHTML='';
-  const clock=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>`;
-  CH_DATA.forEach(c=>{
-    const saved=store.challenges?.find(s=>s.id===c.id);
-    const prog=saved?saved.prog:0;
-    const pct=Math.min(100,Math.round(prog/c.total*100));
-    const d=document.createElement('div');
-    d.className=`ch-card ${c.active?'active-ch':''}`;
-    d.innerHTML=`
-      <div class="ch-card-icon">${CH_ICONS[c.icon]||''}</div>
-      <div class="ch-card-body">
-        <div class="ch-card-title">${c.title}</div>
-        <div class="ch-card-sub">${c.desc}</div>
-        <div class="ch-card-prog"><div class="ch-card-bar" style="width:${pct}%"></div></div>
-        <div class="ch-card-meta">
-          <div class="ch-card-pct">${prog} / ${c.total}</div>
-          <div class="ch-card-timer">${clock} ${c.timer}</div>
-        </div>
-      </div>
-      <div class="ch-reward"><div class="ch-reward-val">+${c.reward.toLocaleString()}</div><span class="ch-reward-lbl">pts</span></div>`;
-    sc.appendChild(d);
-  });
-}
-
-/* ── Recap ── */
-function updateRecap(){
-  const wh=store.weekHistory||[];
-  const weekTotal=wh.reduce((a,b)=>a+b.dots,0)+store.todayDots;
-  const bestDay=Math.max(store.todayDots,...wh.map(d=>d.dots));
-  const daysActive=[...wh.map(d=>d.dots>0),store.todayDots>0].filter(Boolean).length;
-  const golden=store.challenges?.find(c=>c.id==='c4')?.prog||0;
-
-  document.getElementById('recapWrap').innerHTML=`
-    <div class="recap-card">
-      <div class="recap-title">This Week</div>
-      <div class="recap-stats">
-        <div class="recap-stat"><div class="recap-stat-val">${weekTotal.toLocaleString()}</div><div class="recap-stat-lbl">Total dots</div></div>
-        <div class="recap-stat"><div class="recap-stat-val">${bestDay}</div><div class="recap-stat-lbl">Best day</div></div>
-        <div class="recap-stat"><div class="recap-stat-val">${store.streak}</div><div class="recap-stat-lbl">Day streak</div></div>
-        <div class="recap-stat"><div class="recap-stat-val">${daysActive}</div><div class="recap-stat-lbl">Active days</div></div>
-      </div>
-      ${bestDay>0?`<div class="recap-best">
-        <div class="recap-best-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg></div>
-        <div><div class="recap-best-text">Best day: ${bestDay} dots</div><div class="recap-best-sub">${golden} golden dots collected this month</div></div>
-      </div>`:''}
-      <button class="share-btn" onclick="shareRecap()">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-        Share My Week
-      </button>
-    </div>`;
-}
-
-function shareRecap(){
-  const wh=store.weekHistory||[];
-  const weekTotal=wh.reduce((a,b)=>a+b.dots,0)+store.todayDots;
-  const text=`🟡 My WagaWaga Walk week:\n${weekTotal} dots collected\n${store.streak} day streak\nBest day: ${Math.max(store.todayDots,...wh.map(d=>d.dots))} dots\n\nJoin me → wagawaga.app`;
-  if(navigator.share){navigator.share({text});}
-  else{navigator.clipboard?.writeText(text);showToast(ICONS.walk,'Copied to clipboard!');}
-}
-
-/* ── Panels ── */
-function switchPanel(id,el,color){
+function showPanel(id,el,cls){
+  if(!sheetOpen){sheetOpen=true;document.getElementById('sheet').classList.remove('collapsed');document.getElementById('walkWrap').style.bottom='';document.getElementById('fabs').style.bottom='';}
   document.querySelectorAll('.panel').forEach(p=>p.classList.add('hidden'));
   document.getElementById('panel-'+id).classList.remove('hidden');
-  if(el){
-    document.querySelectorAll('.sheet-nav .snav').forEach(s=>s.classList.remove('on-gold','on-teal'));
-    el.classList.add('on-'+color);
-  }
-  if(id==='recap')updateRecap();
-  if(id==='challenges')updateChallenges();
+  if(el){document.querySelectorAll('.snav').forEach(s=>s.classList.remove('og','ot'));el.classList.add(cls);}
+  if(id==='recap')renderRecap();
+  if(id==='challenges')renderCh();
 }
 
-/* ── Toast ── */
+/* RENDER LB */
+function renderLB(period){
+  const fr=LB[period]||LB.day;
+  const me={n:'You',loc:'Here',score:period==='day'?S.todayDots:period==='week'?S.weekDots:S.allDots,av:S.initials||'?',c:'#F0B429',you:true};
+  const all=period==='day'?[...fr,me].sort((a,b)=>b.score-a.score):fr;
+  const el=document.getElementById('lbList');el.innerHTML='';
+  all.forEach((e,i)=>{
+    const d=document.createElement('div');d.className=`lb-card ${e.you?'you':''}`;
+    d.innerHTML=`<div class="lbc-rank">#${i+1}</div><div class="lbc-top"><div class="lbc-av" style="background:${e.c};color:${e.you?'#1a1200':'rgba(238,240,246,.7)'}">${e.av}</div><div><div class="lbc-name">${e.n}${e.you?'<span class="ypip"></span>':''}</div><div class="lbc-loc">${e.loc}</div></div></div><div><span class="lbc-score">${e.score.toLocaleString()}</span><span class="lbc-unit">dots</span></div>`;
+    el.appendChild(d);
+  });
+}
+function setLBTab(btn,period){btn.closest('.subtabs').querySelectorAll('.stab').forEach(s=>s.classList.remove('on'));btn.classList.add('on');renderLB(period);}
+
+/* RENDER TERRITORIES */
+function renderTerr(){
+  const el=document.getElementById('terrList');el.innerHTML='';
+  TERRS.forEach(t=>{
+    const owned=t.status==='owned';
+    const barC=owned?'var(--gold)':t.ok==='teal'?'var(--teal)':'rgba(255,255,255,.2)';
+    const dotC=owned?'var(--gold)':t.ok==='teal'?'var(--teal)':'rgba(255,255,255,.25)';
+    const d=document.createElement('div');d.className=`terr-card ${owned?'owned':''} ${t.cont?'contested':''}`;
+    d.innerHTML=`${owned?'<div class="terr-badge yours">Yours</div>':t.cont?'<div class="terr-badge cont">Contested</div>':''}<div class="terr-name">${t.name}</div><div class="terr-owner"><div style="width:6px;height:6px;border-radius:50%;background:${dotC};flex-shrink:0"></div>${t.owner}</div><div class="terr-bar-bg"><div class="terr-bar" style="width:${t.pct}%;background:${barC}"></div></div><div class="terr-pct">${t.pct}% coverage</div>`;
+    el.appendChild(d);
+  });
+}
+
+/* RENDER CHALLENGES */
+function renderCh(){
+  const el=document.getElementById('chList');el.innerHTML='';
+  const clk=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>`;
+  CHS.forEach(c=>{
+    const sv=S.challenges?.find(s=>s.id===c.id);const prog=sv?sv.prog:0;
+    const pct=Math.min(100,Math.round(prog/c.total*100));
+    const d=document.createElement('div');d.className=`ch-card ${c.active?'active':''}`;
+    d.innerHTML=`<div class="ch-icon">${CH_SVG[c.icon]||''}</div><div class="ch-body"><div class="ch-title">${c.title}</div><div class="ch-sub">${c.desc}</div><div class="ch-prog"><div class="ch-bar" style="width:${pct}%"></div></div><div class="ch-meta"><div class="ch-pct">${prog} / ${c.total}</div><div class="ch-timer">${clk} ${c.timer}</div></div></div><div class="ch-reward"><div class="ch-reward-val">+${c.reward.toLocaleString()}</div><span class="ch-reward-lbl">pts</span></div>`;
+    el.appendChild(d);
+  });
+}
+
+/* RENDER RECAP */
+function renderRecap(){
+  const wh=S.weekHistory||[];
+  const wk=wh.reduce((a,b)=>a+b.dots,0)+S.todayDots;
+  const best=Math.max(S.todayDots,...wh.map(d=>d.dots),0);
+  const days=[...wh.map(d=>d.dots>0),S.todayDots>0].filter(Boolean).length;
+  document.getElementById('recapWrap').innerHTML=`<div class="recap-card"><div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:12px">This Week</div><div class="recap-stats"><div class="recap-stat"><div class="recap-stat-val">${wk.toLocaleString()}</div><div class="recap-stat-lbl">Total dots</div></div><div class="recap-stat"><div class="recap-stat-val">${best}</div><div class="recap-stat-lbl">Best day</div></div><div class="recap-stat"><div class="recap-stat-val">${S.streak}</div><div class="recap-stat-lbl">Streak</div></div><div class="recap-stat"><div class="recap-stat-val">${days}</div><div class="recap-stat-lbl">Active days</div></div></div><button class="share-btn" onclick="shareRecap()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>Share My Week</button></div>`;
+}
+function shareRecap(){
+  const wh=S.weekHistory||[];const wk=wh.reduce((a,b)=>a+b.dots,0)+S.todayDots;
+  const text=`My WagaWaga Walk week:\n${wk} dots · ${S.streak} day streak\nhttps://ethanforman1994.github.io/wagawaga`;
+  if(navigator.share)navigator.share({text});
+  else{navigator.clipboard?.writeText(text);showToast(ICO.walk,'Copied!');}
+}
+
+/* TOAST */
 let toastT;
 function showToast(icon,msg){
   const el=document.getElementById('toast');
-  document.getElementById('toastIcon').innerHTML=icon;
-  document.getElementById('toastMsg').textContent=msg;
-  el.classList.add('show');clearTimeout(toastT);
-  toastT=setTimeout(()=>el.classList.remove('show'),2800);
+  document.getElementById('tIcon').innerHTML=icon;document.getElementById('tMsg').textContent=msg;
+  el.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>el.classList.remove('show'),2800);
 }
-
-const ICONS={
+const ICO={
   star:`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FFD166" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
   teal:`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#2DD4BF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
   walk:`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#22C55E" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M7.5 17.5L9.5 12l3 2.5 2-6"/><path d="M9.5 12L7 18.5"/><path d="M15 13.5L17.5 19"/></svg>`,
   warn:`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F0B429" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
   fire:`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F0B429" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c4 0 7-3 7-7 0-3-1.5-5-3.5-6.5.5 2-1 3.5-2 4C14 10.5 13 8 11 6c0 3-2 4.5-3 6.5-.5 1-.5 2-.5 2.5 0 4 3 7 4.5 7z"/></svg>`,
   trophy:`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F0B429" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4a2 2 0 0 1-2-2V5h4"/><path d="M18 9h2a2 2 0 0 0 2-2V5h-4"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M6 5v4a6 6 0 0 0 12 0V5H6z"/></svg>`,
-  map:`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#38BDF8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 6-9 13-9 13S3 16 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="2"/></svg>`,
 };
 
-/* ── Bursts ── */
-function spawnBurst(x,y,color='#F0B429'){
-  const bc=document.getElementById('burstContainer');
-  const n=color==='#FFD166'?14:7;
+/* BURST FX */
+function burst(lng,lat,type){
+  if(!map)return;let sp;
+  try{const p=map.project([lng,lat]);sp={x:p.x,y:p.y};}catch(e){return;}
+  const color=type==='golden'?'#F0B429':'#0EB8A0';
+  const pts=type==='golden'?10:type==='landmark'?30:1;
+  const bw=document.getElementById('bw');const n=type==='golden'?12:7;
   for(let i=0;i<n;i++){
     const b=document.createElement('div');b.className='burst';
-    const ang=(i/n)*Math.PI*2+Math.random()*.5,dist=24+Math.random()*36;
-    b.style.cssText=`left:${x}px;top:${y}px;width:${n===14?9:7}px;height:${n===14?9:7}px;background:${color};--bx:${Math.cos(ang)*dist}px;--by:${Math.sin(ang)*dist}px`;
-    bc.appendChild(b);setTimeout(()=>b.remove(),650);
+    const ang=(i/n)*Math.PI*2+Math.random()*.4,dist=22+Math.random()*34;
+    b.style.cssText=`left:${sp.x}px;top:${sp.y}px;width:${n===12?9:7}px;height:${n===12?9:7}px;background:${color};--bx:${Math.cos(ang)*dist}px;--by:${Math.sin(ang)*dist}px`;
+    bw.appendChild(b);setTimeout(()=>b.remove(),600);
   }
-}
-function spawnScorePop(x,y,pts,type){
-  const bc=document.getElementById('burstContainer');
-  const pop=document.createElement('div');pop.className='score-pop';
-  const c=type==='golden'?'#FFD166':type==='landmark'||type==='bonus'?'#0EB8A0':'#F0B429';
-  pop.style.cssText=`left:${x+8}px;top:${y-10}px;color:${c};font-size:${pts>=10?17:pts>=5?15:13}px;text-shadow:0 2px 12px ${c}66`;
-  pop.textContent=`+${pts}`;bc.appendChild(pop);setTimeout(()=>pop.remove(),800);
+  const p2=document.createElement('div');p2.className='pop';
+  p2.style.cssText=`left:${sp.x+8}px;top:${sp.y-10}px;color:${color};text-shadow:0 2px 10px ${color}55`;
+  p2.textContent=`+${pts}`;bw.appendChild(p2);setTimeout(()=>p2.remove(),750);
 }
 
-/* ── Initials ── */
-function askInitials(){
-  if(store.initials&&store.initials!=='?')return;
-  setTimeout(()=>{
-    const v=prompt('Enter your initials to appear on the map (e.g. MF):');
-    if(v){store.initials=v.toUpperCase().slice(0,2);save();updateUI();}
-  },1200);
+/* NUDGE */
+let lastNudge=0,nudgeIdx=0;
+const NUDGES=[[ICO.warn,'Jordan is 8 dots ahead — keep going!'],[ICO.fire,'You\'re on a roll!'],[ICO.trophy,'Personal best pace today!'],[ICO.warn,'Priya is challenging your territory!']];
+function nudge(){if(Date.now()-lastNudge<45000||Math.random()>.25)return;lastNudge=Date.now();const[ic,msg]=NUDGES[nudgeIdx%NUDGES.length];nudgeIdx++;showToast(ic,msg);}
+
+/* INITIALS */
+function askInit(){
+  if(S.initials&&S.initials!=='?')return;
+  setTimeout(()=>{const v=prompt('Enter your initials to appear on the map (e.g. EF):');if(v){S.initials=v.toUpperCase().slice(0,2);save();updateUI();}},1500);
 }
 
-/* ── Midnight reset ── */
+/* MIDNIGHT */
 function scheduleMidnight(){
-  const now=new Date();
-  const ms=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now;
-  setTimeout(()=>{
-    store=loadStore();updateUI();updateChallenges();updateRecap();
-    Object.values(dotMarkers).forEach(d=>d.el.classList.remove('eaten'));
-    store.eatenIds={};save();
-    showToast(ICONS.walk,'Midnight! Fresh dots are live');
-    scheduleMidnight();
-  },ms+1000);
+  const now=new Date();const ms=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now;
+  setTimeout(()=>{S=loadStore();updateUI();renderCh();renderRecap();refreshGL();showToast(ICO.walk,'Midnight — fresh dots are live!');scheduleMidnight();},ms+1000);
 }
 
-/* ── Sheet expand/collapse ── */
-let sheetState='default'; // default | expanded | collapsed
-function toggleSheet(){
-  const sheet=document.querySelector('.sheet');
-  if(sheetState==='default'||sheetState==='collapsed'){
-    sheet.classList.remove('collapsed');
-    sheet.classList.add('expanded');
-    sheetState='expanded';
-    // Resize map
-    if(map)setTimeout(()=>map.resize(),360);
-  } else {
-    sheet.classList.remove('expanded');
-    sheet.classList.add('collapsed');
-    sheetState='collapsed';
-    if(map)setTimeout(()=>map.resize(),360);
-  }
-}
-
-/* ── Sheet expand/collapse ── */
-let sheetState='default';
-function toggleSheet(){
-  const sheet=document.querySelector('.sheet');
-  if(sheetState==='default'||sheetState==='collapsed'){
-    sheet.classList.remove('collapsed');
-    sheet.classList.add('expanded');
-    sheetState='expanded';
-    if(map)setTimeout(()=>map.resize(),360);
-  } else {
-    sheet.classList.remove('expanded');
-    sheet.classList.add('collapsed');
-    sheetState='collapsed';
-    if(map)setTimeout(()=>map.resize(),360);
-  }
-}
-
-/* ══ INIT ══ */
+/* BOOT */
 updateUI();scheduleMidnight();
-if(store.initials&&store.initials!=='?')document.getElementById('avBtn').textContent=store.initials;
+if(S.initials&&S.initials!=='?')document.getElementById('avBtn').textContent=S.initials;
 </script>
 </body>
 </html>

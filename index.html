@@ -14,7 +14,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 import { getFirestore, doc, setDoc, getDoc, collection, query, orderBy, limit, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
@@ -27,26 +27,92 @@ const firebaseConfig = {
   measurementId: "G-BFYBV5K1XK"
 };
 
-const fbApp  = initializeApp(firebaseConfig);
-const auth   = getAuth(fbApp);
-const db     = getFirestore(fbApp);
+const fbApp = initializeApp(firebaseConfig);
+const auth  = getAuth(fbApp);
+const db    = getFirestore(fbApp);
 
 let fbUid = null;
+let confirmationResult = null;
+let recaptchaVerifier = null;
 
-// ── Sign in anonymously ──────────────────────────────────────
-signInAnonymously(auth).catch(e=>console.warn('Firebase auth failed',e));
-
+// ── Auth state listener ──────────────────────────────────────
 onAuthStateChanged(auth, user=>{
-  if(!user) return;
-  fbUid = user.uid;
-  window._fbUid = fbUid;
-
-  // Load this user's cloud profile and merge with localStorage
-  loadCloudProfile(fbUid);
-
-  // Subscribe to live leaderboard updates
-  subscribeLeaderboard();
+  if(user){
+    fbUid = user.uid;
+    window._fbUid = fbUid;
+    // Hide phone auth UI and request location
+    document.getElementById('phoneAuthWrap').style.display='none';
+    if(window._startApp) window._startApp();
+    loadCloudProfile(fbUid);
+    subscribeLeaderboard();
+  }
 });
+
+// ── Setup invisible reCAPTCHA ────────────────────────────────
+function setupRecaptcha(){
+  if(recaptchaVerifier) return;
+  recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+    size: 'invisible',
+    callback: ()=>{}
+  });
+}
+
+// ── Send SMS code ────────────────────────────────────────────
+window._sendCode = async function(){
+  const raw = document.getElementById('phoneInput').value.trim();
+  if(!raw){ showPhoneError('Please enter your phone number.'); return; }
+
+  // Format: ensure +1 for US numbers
+  let phone = raw.replace(/\D/g,'');
+  if(phone.length===10) phone='+1'+phone;
+  else if(phone.length===11&&phone.startsWith('1')) phone='+'+phone;
+  else phone='+'+phone;
+
+  setPhoneState('sending');
+  try{
+    setupRecaptcha();
+    confirmationResult = await signInWithPhoneNumber(auth, phone, recaptchaVerifier);
+    setPhoneState('code');
+  }catch(e){
+    console.warn('SMS error',e);
+    recaptchaVerifier=null; // reset so it can retry
+    if(e.code==='auth/invalid-phone-number') showPhoneError('Invalid phone number. Try again with your 10-digit number.');
+    else if(e.code==='auth/too-many-requests') showPhoneError('Too many attempts. Please wait a few minutes.');
+    else showPhoneError('Could not send code. Check your number and try again.');
+    setPhoneState('phone');
+  }
+};
+
+// ── Verify SMS code ──────────────────────────────────────────
+window._verifyCode = async function(){
+  const code = document.getElementById('codeInput').value.trim();
+  if(!code||code.length<6){ showPhoneError('Enter the 6-digit code from your text.'); return; }
+  setPhoneState('verifying');
+  try{
+    await confirmationResult.confirm(code);
+    // onAuthStateChanged fires and handles the rest
+  }catch(e){
+    console.warn('Code error',e);
+    if(e.code==='auth/invalid-verification-code') showPhoneError('Wrong code. Please try again.');
+    else if(e.code==='auth/code-expired') showPhoneError('Code expired. Please request a new one.');
+    else showPhoneError('Verification failed. Please try again.');
+    setPhoneState('code');
+  }
+};
+
+function setPhoneState(state){
+  document.getElementById('phoneStep').style.display  = state==='phone'     ? 'flex' : 'none';
+  document.getElementById('codeStep').style.display   = state==='code'      ? 'flex' : 'none';
+  document.getElementById('sendingStep').style.display= (state==='sending'||state==='verifying') ? 'flex' : 'none';
+  document.getElementById('sendingLbl').textContent   = state==='verifying' ? 'Verifying…' : 'Sending code…';
+  document.getElementById('phoneError').style.display = 'none';
+}
+window._setPhoneState = setPhoneState;
+
+function showPhoneError(msg){
+  const el=document.getElementById('phoneError');
+  el.textContent=msg;el.style.display='block';
+}
 
 // ── Load cloud profile ───────────────────────────────────────
 async function loadCloudProfile(uid){
@@ -54,19 +120,15 @@ async function loadCloudProfile(uid){
     const snap = await getDoc(doc(db,'users',uid));
     if(snap.exists()){
       const d = snap.data();
-      // Cloud is source of truth for scores — merge in
-      if(d.todayDate === window._toDay()){
-        window._S.todayDots  = d.todayDots  || window._S.todayDots;
-      }
-      window._S.weekDots   = d.weekDots   || window._S.weekDots;
-      window._S.allDots    = d.allDots    || window._S.allDots;
-      window._S.streak     = d.streak     || window._S.streak;
+      if(d.todayDate === window._toDay()) window._S.todayDots = d.todayDots||window._S.todayDots;
+      window._S.weekDots    = d.weekDots    || window._S.weekDots;
+      window._S.allDots     = d.allDots     || window._S.allDots;
+      window._S.streak      = d.streak      || window._S.streak;
       window._S.displayName = d.displayName || window._S.displayName || '';
       window._save();
       window._updateUI();
       window._updatePlayerPin();
     } else {
-      // First time — prompt for display name then create profile
       promptDisplayName(uid);
     }
   }catch(e){ console.warn('loadCloudProfile error',e); }
@@ -79,9 +141,9 @@ function promptDisplayName(uid){
     const name = v ? v.trim().slice(0,20) : 'Anonymous';
     window._S.displayName = name;
     window._save();
-    pushCloudProfile();
+    window._pushCloud();
     window._updateUI();
-  }, 1800);
+  }, 1000);
 }
 
 // ── Push score to Firestore ──────────────────────────────────
@@ -102,27 +164,18 @@ window._pushCloud = async function(){
   }catch(e){ console.warn('pushCloud error',e); }
 };
 
-function pushCloudProfile(){ window._pushCloud(); }
-
 // ── Live leaderboard listener ────────────────────────────────
 function subscribeLeaderboard(){
   const q = query(collection(db,'users'), orderBy('todayDots','desc'), limit(20));
   onSnapshot(q, snap=>{
-    const rows = [];
+    const rows=[];
     snap.forEach(d=>{
-      const data = d.data();
-      rows.push({
-        uid   : d.id,
-        n     : data.displayName || 'Anonymous',
-        emoji : data.emoji || '🐣',
-        score : data.todayDots || 0,
-        week  : data.weekDots  || 0,
-        all   : data.allDots   || 0,
-        streak: data.streak    || 0,
-        you   : d.id === fbUid,
-      });
+      const data=d.data();
+      rows.push({uid:d.id,n:data.displayName||'Anonymous',emoji:data.emoji||'🐣',
+        score:data.todayDots||0,week:data.weekDots||0,all:data.allDots||0,
+        streak:data.streak||0,you:d.id===fbUid});
     });
-    window._liveRows = rows;
+    window._liveRows=rows;
     if(window._renderLB) window._renderLB(window._lbPeriod||'day');
   });
 }
@@ -335,6 +388,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 #permDefault{display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center}
 #permError{gap:14px}
 
+/* PHONE AUTH */
+#phoneAuthWrap{width:100%;max-width:300px;display:flex;flex-direction:column;gap:14px;align-items:center}
+#phoneAuthWrap input{width:100%;background:rgba(255,255,255,0.06);border:1px solid var(--border2);border-radius:14px;padding:14px 16px;font-family:'Outfit',sans-serif;font-size:16px;color:var(--text);outline:none;text-align:center;-webkit-appearance:none}
+#phoneAuthWrap input::placeholder{color:var(--text3)}
+#phoneAuthWrap input:focus{border-color:var(--gold-border)}
+.phone-step{display:flex;flex-direction:column;gap:10px;align-items:center;width:100%}
+#phoneError{font-size:12px;color:var(--red);text-align:center;display:none;max-width:260px;line-height:1.4}
+.resend-btn{background:none;border:none;color:var(--text2);font-family:'Outfit',sans-serif;font-size:12px;cursor:pointer;text-decoration:underline;padding:0}
+
 /* MARKERS */
 .player-el{width:44px;height:44px;display:flex;align-items:center;justify-content:center;position:relative}
 .player-ring{position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(240,180,41,.1);animation:pr 2s infinite}
@@ -347,7 +409,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 </head>
 <body>
 
-<!-- Permission screen -->
+<!-- Permission / Auth screen -->
 <div class="perm" id="perm">
   <svg width="56" height="44" viewBox="0 0 72 56" fill="none">
     <circle cx="8"  cy="46" r="3.5" fill="rgba(240,180,41,0.18)"/>
@@ -363,21 +425,40 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
     <div style="font-size:11px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;color:var(--text2);margin-top:4px">Beta</div>
   </div>
 
-  <!-- Default state -->
-  <div id="permDefault">
-    <div class="perm-sub">Walk your neighborhood, collect dots, own territories, and compete with friends.</div>
-    <button class="perm-btn" style="margin-top:4px" onclick="startApp()">Enable Location</button>
-    <div class="perm-note">Your location is only used while the app is open and is never stored on a server.</div>
+  <!-- Phone auth steps -->
+  <div id="phoneAuthWrap">
+
+    <!-- Step 1: Enter phone -->
+    <div class="phone-step" id="phoneStep">
+      <div class="perm-sub" style="margin-bottom:4px">Enter your phone number to join the leaderboard and keep your progress.</div>
+      <input id="phoneInput" type="tel" inputmode="tel" placeholder="(555) 555-5555" autocomplete="tel"/>
+      <div id="phoneError"></div>
+      <button class="perm-btn" onclick="window._sendCode()">Send Code</button>
+      <div class="perm-note">US numbers only for now. Standard SMS rates apply.</div>
+    </div>
+
+    <!-- Step 2: Enter code -->
+    <div class="phone-step" id="codeStep" style="display:none">
+      <div class="perm-sub" style="margin-bottom:4px">Enter the 6-digit code we just texted you.</div>
+      <input id="codeInput" type="number" inputmode="numeric" placeholder="123456" maxlength="6" autocomplete="one-time-code"/>
+      <div id="phoneError"></div>
+      <button class="perm-btn" onclick="window._verifyCode()">Verify</button>
+      <button class="resend-btn" onclick="window._setPhoneState('phone')">Wrong number? Go back</button>
+    </div>
+
+    <!-- Sending/verifying state -->
+    <div class="phone-step" id="sendingStep" style="display:none">
+      <div style="font-size:28px">📱</div>
+      <div class="perm-sub" id="sendingLbl">Sending code…</div>
+    </div>
+
   </div>
 
-  <!-- Searching state -->
-  <div id="permSearching" style="display:none;text-align:center">
-    <div class="perm-sub">Finding your location…</div>
-    <div style="margin-top:8px;font-size:24px">📍</div>
-  </div>
+  <!-- invisible reCAPTCHA anchor -->
+  <div id="recaptcha-container"></div>
 
-  <!-- Error state -->
-  <div id="permError" style="display:none;text-align:center;gap:14px;display:none;flex-direction:column;align-items:center">
+  <!-- Location error state (shown after auth if location denied) -->
+  <div id="permError" style="display:none;flex-direction:column;align-items:center;gap:14px">
     <div style="font-size:32px">🚫</div>
     <div class="perm-sub" id="permErrorMsg">Location access was denied.</div>
     <div style="background:rgba(240,180,41,0.08);border:1px solid var(--gold-border);border-radius:14px;padding:14px 16px;font-size:12px;color:var(--text2);line-height:1.7;max-width:290px;text-align:left">
@@ -385,10 +466,11 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
       1. Open the <strong style="color:var(--text)">Settings</strong> app<br>
       2. Tap <strong style="color:var(--text)">Privacy & Security → Location Services</strong><br>
       3. Find <strong style="color:var(--text)">Safari</strong> → set to <strong style="color:var(--text)">While Using</strong><br>
-      4. Come back and tap Retry below
+      4. Make sure <strong style="color:var(--text)">Precise Location</strong> is ON<br>
+      5. Come back and tap Retry
     </div>
     <button class="perm-btn" onclick="retryLocation()">Try Again</button>
-    <div class="perm-note">Location is required to play. Dots are placed on real streets near you.</div>
+    <div class="perm-note">Location is required to play.</div>
   </div>
 </div>
 
@@ -991,23 +1073,27 @@ function addGhost(lat,lng){
 
 /* ─── GEO ────────────────────────────────────────────────── */
 function showPermState(state, msg=''){
-  document.getElementById('permDefault').style.display   = state==='default'   ? 'block' : 'none';
-  document.getElementById('permSearching').style.display = state==='searching' ? 'block' : 'none';
-  document.getElementById('permError').style.display     = state==='error'     ? 'flex'  : 'none';
+  document.getElementById('phoneAuthWrap').style.display = state==='auth'    ? 'flex'  : 'none';
+  document.getElementById('permError').style.display     = state==='error'   ? 'flex'  : 'none';
   if(msg) document.getElementById('permErrorMsg').textContent = msg;
 }
 
+// Called by Firebase module after successful phone auth
+// Also called if user was already signed in (onAuthStateChanged fires on load)
 function startApp(){
+  // Hide phone auth, show location searching
+  document.getElementById('phoneAuthWrap').style.display='none';
+  document.getElementById('permError').style.display='none';
   if(!('geolocation' in navigator)){
     showPermState('error','Your browser doesn\'t support location services.');
     return;
   }
-  showPermState('searching');
   requestLocation();
 }
+window._startApp = startApp;
 
 function retryLocation(){
-  showPermState('searching');
+  document.getElementById('permError').style.display='none';
   requestLocation();
 }
 
@@ -1022,13 +1108,12 @@ function requestLocation(){
       geoName(lat,lng);
     },
     err=>{
-      let msg = 'Location access was denied.';
-      if(err.code===1) msg = 'Location access was denied.';
-      else if(err.code===2) msg = 'Your location couldn\'t be determined. Check your signal and try again.';
-      else if(err.code===3) msg = 'Location request timed out. Please try again.';
-      showPermState('error', msg);
+      let msg='Location access was denied.';
+      if(err.code===2) msg='Your location couldn\'t be determined. Check your signal and try again.';
+      else if(err.code===3) msg='Location request timed out. Please try again.';
+      showPermState('error',msg);
     },
-    {enableHighAccuracy:true, timeout:15000, maximumAge:0}
+    {enableHighAccuracy:true,timeout:15000,maximumAge:0}
   );
 }
 

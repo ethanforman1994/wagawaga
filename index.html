@@ -367,15 +367,42 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   margin-left:6px;vertical-align:middle;
 }
 
-.sheet.collapsed{
-  transform: translateY(calc(100% - 48px));
+.sheet{
+  transition: height 0.35s cubic-bezier(0.32,0.72,0,1);
 }
-
-/* sheet toggle removed */
-
-/* When sheet collapsed, move walk btn and fabs up */
+.sheet.collapsed{
+  height: 52px !important; /* just show the handle bar + chevron */
+  overflow: hidden;
+}
+.sheet.collapsed .sheet-nav,
+.sheet.collapsed .sheet-content{
+  opacity: 0;
+  pointer-events: none;
+}
+.sheet-tab{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  gap: 3px;
+  -webkit-tap-highlight-color: transparent;
+}
+.sheet-tab-bar{
+  width: 36px; height: 4px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 2px;
+}
+.sheet-tab-chevron{
+  transition: transform 0.3s ease;
+}
+.sheet.collapsed .sheet-tab-chevron{
+  transform: rotate(180deg);
+}
+/* When sheet collapsed, float walk btn and fabs down */
 .walk-wrap, .fabs{
-  transition: bottom 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: bottom 0.35s cubic-bezier(0.32,0.72,0,1);
 }
 </style>
 </head>
@@ -587,8 +614,8 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 ══════════════════════════════════════════════ */
 const MAPBOX_TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
 const COLLECT_RADIUS_M  = 18;
-const SPAWN_RADIUS_M    = 900;  // larger radius = more streets covered
-const DOT_SPACING_M     = 18;  // one dot every ~18m along road
+const SPAWN_RADIUS_M    = 700;  // grid radius around player
+const DOT_SPACING_M     = 22;   // kept for reference — grid uses GRID_LAT/LNG
 const GOLDEN_CHANCE     = 0.06;   // ~6% of dots are golden (10pts)
 // Simplified to 2 types for beta: regular (1pt) and golden (10pt)
 // Landmark dots remain as special teal (variable pts)
@@ -597,12 +624,18 @@ const GOLDEN_CHANCE     = 0.06;   // ~6% of dots are golden (10pts)
    STORAGE
 ══════════════════════════════════════════════ */
 const TODAY = () => new Date().toISOString().split('T')[0];
-const SK = 'wagawaga_v4'; // v4: GL dots, sheet toggle, map follows player
+const SK = 'wagawaga'; // permanent key — never change this // v4: GL dots, sheet toggle, map follows player
 
 function loadStore(){
   try{
     const s = JSON.parse(localStorage.getItem(SK)||'null');
     if(!s) return fresh();
+
+    // Migrate any missing fields from newer versions — never wipe data
+    const f = fresh();
+    Object.keys(f).forEach(k => { if(s[k] === undefined) s[k] = f[k]; });
+
+    // Daily reset — only resets today's data, preserves all-time totals
     if(s.lastDay !== TODAY()){
       const hadWalk = s.walkedToday;
       s.weekHistory = s.weekHistory||[];
@@ -613,7 +646,10 @@ function loadStore(){
       s.lastDay=TODAY(); s.walkedToday=false;
     }
     return s;
-  }catch(e){return fresh();}
+  }catch(e){
+    // Only use fresh store if data is genuinely corrupt (not just missing fields)
+    return fresh();
+  }
 }
 function fresh(){
   return{lastDay:TODAY(),todayDots:0,weekDots:0,totalDots:0,
@@ -726,13 +762,12 @@ function initMap(lat,lng){
     spawnFriendMarkers(lat,lng);
     addNeighbourhoodLayers();
     initDotLayers();
-    spawnLandmarkDots(lat,lng);
-    // Wide initial spawn: zoom out to capture ~1km of road data,
-    // query everything, then zoom back in. User sees a brief zoom
-    // animation but gets dots pre-loaded across a large area.
-    map.once('idle', ()=>{
-      initialWideSpawn(lat, lng);
-    });
+    // Fixed grid spawn — instant, no tile queries, fully deterministic
+    spawnDotsAround(lat, lng);
+    spawnLandmarkDots(lat, lng);
+    // Restore today's eaten state and trail
+    restoreEatenDots();
+    restoreTodayTrail();
     updateUI();
     updateLB('day');
     updateTerritories();
@@ -968,18 +1003,56 @@ function offset(lat,lng,dLat,dLng){
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   GL LAYER DOT SYSTEM
-   All dots rendered as a single Mapbox GL GeoJSON source.
-   Zero HTML markers = stable at any zoom, no drift, one dot
-   per road centreline point, instant updates on collection.
+   FIXED GLOBAL GRID DOT SYSTEM
+   ─────────────────────────────────────────────────────────────
+   Dots sit on a mathematically fixed world grid.
+   Every coordinate always rounds to the same grid cell.
+   Same ID = same spot = never reappears after being eaten.
+   No tile querying, no road snapping, no randomness on spawn.
+   Works offline, loads instantly, fully deterministic.
 ═══════════════════════════════════════════════════════════════ */
 
-// Master dot store — all dots keyed by stable coord ID
-// { id: { lat, lng, type, pts, label, eaten } }
+// Master dot store — keyed by stable grid ID
+// { id: { id, lat, lng, type, pts, label } }
 const DOT_DB = {};
 
+let glSourceReady = false;
 let spawnInProgress = false;
-let glSourceReady   = false;
+
+// Grid constants — fixed origin, fixed cell size
+// DOT_SPACING_M ≈ 22m → ~0.000198 degrees lat, ~0.000253 degrees lng (NYC)
+const GRID_LAT = 0.000198; // degrees per grid cell (lat)
+const GRID_LNG = 0.000253; // degrees per grid cell (lng)
+
+// Snap a lat/lng to the nearest grid cell centre
+function snapToGrid(lat, lng){
+  const gLat = Math.round(lat / GRID_LAT) * GRID_LAT;
+  const gLng = Math.round(lng / GRID_LNG) * GRID_LNG;
+  // Round to 6dp to avoid float noise
+  return {
+    lat: Math.round(gLat * 1e6) / 1e6,
+    lng: Math.round(gLng * 1e6) / 1e6,
+  };
+}
+
+// Stable dot ID from fixed grid position
+function dotIdFromCoords(lat, lng){
+  const g = snapToGrid(lat, lng);
+  // Use integer keys — multiply by 1e4 and floor for compact IDs
+  const iLat = Math.round(g.lat * 10000);
+  const iLng = Math.round(g.lng * 10000);
+  return `d_${iLat}_${iLng}`;
+}
+
+// Deterministic dot type from ID (no random on re-spawn)
+// Uses a hash of the ID string so type is always the same for a given cell
+function dotTypeFromId(id){
+  let h = 0;
+  for(let i = 0; i < id.length; i++) h = (Math.imul(31, h) + id.charCodeAt(i)) | 0;
+  h = Math.abs(h);
+  if(h % 100 < 4)  return { type: 'golden',  pts: 10 }; // ~4% golden
+  return { type: 'regular', pts: 1 };
+}
 
 /* ── Init GL dot layers ── */
 function initDotLayers(){
@@ -987,48 +1060,47 @@ function initDotLayers(){
 
   map.addSource('dots-src', {
     type: 'geojson',
-    data: buildDotGeoJSON()
+    data: buildDotGeoJSON(),
   });
 
-  // Regular dots — teal filled circles
+  // Regular dots — teal, small
   map.addLayer({
     id: 'dots-regular',
     type: 'circle',
     source: 'dots-src',
     filter: ['all', ['==',['get','type'],'regular'], ['==',['get','eaten'],false]],
     paint: {
-      'circle-radius':  ['interpolate',['linear'],['zoom'], 14,4, 17,6, 19,8],
+      'circle-radius':  ['interpolate',['linear'],['zoom'], 13,3, 16,5, 19,7],
       'circle-color':   '#0EB8A0',
-      'circle-opacity': 0.9,
+      'circle-opacity': 0.88,
       'circle-stroke-width': 1,
-      'circle-stroke-color': 'rgba(255,255,255,0.2)',
+      'circle-stroke-color': 'rgba(255,255,255,0.18)',
     }
   });
 
-  // Golden dots — gold, slightly larger
+  // Golden dots — gold, larger, rare
   map.addLayer({
     id: 'dots-golden',
     type: 'circle',
     source: 'dots-src',
     filter: ['all', ['==',['get','type'],'golden'], ['==',['get','eaten'],false]],
     paint: {
-      'circle-radius':  ['interpolate',['linear'],['zoom'], 14,6, 17,9, 19,12],
+      'circle-radius':  ['interpolate',['linear'],['zoom'], 13,5, 16,8, 19,11],
       'circle-color':   '#F0B429',
       'circle-opacity': 1,
-      'circle-stroke-width': 2,
+      'circle-stroke-width': 2.5,
       'circle-stroke-color': '#FFD166',
-      'circle-blur': 0.15,
     }
   });
 
-  // Landmark dots — white with teal stroke
+  // Landmark dots — large white with teal ring
   map.addLayer({
     id: 'dots-landmark',
     type: 'circle',
     source: 'dots-src',
     filter: ['all', ['==',['get','type'],'landmark'], ['==',['get','eaten'],false]],
     paint: {
-      'circle-radius':  ['interpolate',['linear'],['zoom'], 14,8, 17,12, 19,16],
+      'circle-radius':  ['interpolate',['linear'],['zoom'], 13,7, 16,11, 19,15],
       'circle-color':   '#ffffff',
       'circle-opacity': 1,
       'circle-stroke-width': 3,
@@ -1036,18 +1108,17 @@ function initDotLayers(){
     }
   });
 
-  // Eaten dots — very faint ring so walked streets are visible
+  // Eaten dots — faint ghost ring so you can see your coverage
   map.addLayer({
     id: 'dots-eaten',
     type: 'circle',
     source: 'dots-src',
     filter: ['==',['get','eaten'],true],
     paint: {
-      'circle-radius':  ['interpolate',['linear'],['zoom'], 14,3, 17,5],
+      'circle-radius':  ['interpolate',['linear'],['zoom'], 13,2.5, 16,4, 19,6],
       'circle-color':   'rgba(255,255,255,0)',
       'circle-stroke-width': 1,
-      'circle-stroke-color': 'rgba(255,255,255,0.12)',
-      'circle-stroke-opacity': 0.5,
+      'circle-stroke-color': 'rgba(255,255,255,0.14)',
     }
   });
 
@@ -1065,350 +1136,66 @@ function buildDotGeoJSON(){
         type:  d.type,
         pts:   d.pts,
         label: d.label || '',
-        eaten: store.eatenIds[d.id] ? true : false,
+        eaten: !!store.eatenIds[d.id],
       }
     }))
   };
 }
 
 function refreshDotLayer(){
-  if(!glSourceReady || !map.getSource('dots-src')) return;
+  if(!glSourceReady || !map || !map.getSource('dots-src')) return;
   map.getSource('dots-src').setData(buildDotGeoJSON());
 }
 
-/* ── Road-snapped spawning ──
-   Strategy:
-   1. Query ALL walkable features — streets, paths, park trails, footways
-   2. Place one dot at each segment midpoint
-   3. Deduplicate aggressively: any two dots within DEDUP_RADIUS collapse to one
-   4. Exclude non-walkable types: highways, motorways, service roads
-═══════════════════════════════════════════════════════════════ */
+/* ── Fixed grid dot spawn ──
+   Generates dots in a square grid around the player.
+   Every cell snaps to the global fixed grid — same position every time.
+   Deterministic type assignment — same cell always same type.
+   Called once on load and when player moves into a new area.
+════════════════════════════════════════════════════════════ */
+function spawnDotsAround(lat, lng){
+  if(!map || !glSourceReady) return;
 
-const DEDUP_RADIUS_M = 20; // collapse dots within 20m — prevents doubles, keeps density
+  // How many grid cells to cover in each direction
+  const latSteps = Math.ceil(SPAWN_RADIUS_M / (GRID_LAT * 111320));
+  const lngSteps = Math.ceil(SPAWN_RADIUS_M / (GRID_LNG * 111320));
 
-/* ── Initial wide spawn ──
-   Temporarily zooms the map out to capture a large radius of road
-   geometry, queries all walkable features, places dots, then
-   smoothly flies back to the user's walking zoom.
-   All existing dedup + road-snap logic applies.
-══════════════════════════════════════════════════════════════ */
-async function initialWideSpawn(lat, lng){
-  if(spawnInProgress) return;
-  spawnInProgress = true;
+  // Snap player position to grid
+  const origin = snapToGrid(lat, lng);
 
-  const walkingZoom = map.getZoom();
-  const WIDE_ZOOM   = 15.5; // renders ALL streets including minor roads + paths
+  let added = 0;
+  for(let dlat = -latSteps; dlat <= latSteps; dlat++){
+    for(let dlng = -lngSteps; dlng <= lngSteps; dlng++){
+      const cLat = Math.round((origin.lat + dlat * GRID_LAT) * 1e6) / 1e6;
+      const cLng = Math.round((origin.lng + dlng * GRID_LNG) * 1e6) / 1e6;
 
-  // Step 1: Zoom out silently (no animation — instant)
-  map.jumpTo({ center: [lng, lat], zoom: WIDE_ZOOM });
+      // Skip if outside circular spawn radius
+      const distM = haversineM(lat, lng, cLat, cLng);
+      if(distM > SPAWN_RADIUS_M) continue;
 
-  // Step 2: Wait for tiles at wide zoom to fully load
-  await new Promise(res => {
-    const check = () => {
-      if(map.areTilesLoaded()){ map.off('idle', check); res(); }
-    };
-    map.on('idle', check);
-    setTimeout(res, 5000); // max 5s wait
-  });
+      const id = dotIdFromCoords(cLat, cLng);
 
-  // Step 3: Multi-pass query — jump to 4 offset positions around player
-  // then query at each, capturing roads in all directions
-  const allLayers = map.getStyle().layers.map(l => l.id);
-  const walkableLayers = allLayers.filter(id => {
-    const l = id.toLowerCase();
-    return l.includes('road') || l.includes('path') || l.includes('pedestrian') ||
-           l.includes('footway') || l.includes('walk') || l.includes('cycleway') ||
-           l.includes('steps') || l.includes('trail') || l.includes('track');
-  });
+      // Already in DOT_DB — skip (never duplicate)
+      if(DOT_DB[id]) continue;
 
-  const existingIds = new Set(Object.keys(DOT_DB));
-  const candidates  = [];
-  const allFeatures = [];
-  const seenFIds    = new Set();
-
-  function collectFeatures(){
-    try{
-      map.queryRenderedFeatures(undefined, {layers: walkableLayers}).forEach(f => {
-        if(!seenFIds.has(f.id)){ seenFIds.add(f.id); allFeatures.push(f); }
-      });
-    }catch(e){}
-    const W = map.getCanvas().width/(window.devicePixelRatio||1);
-    const H = map.getCanvas().height/(window.devicePixelRatio||1);
-    [[W*.1,H*.1],[W*.9,H*.1],[W*.1,H*.9],[W*.9,H*.9],
-     [W*.5,H*.1],[W*.1,H*.5],[W*.9,H*.5],[W*.5,H*.9]].forEach(pt=>{
-      try{
-        map.queryRenderedFeatures(pt,{layers:walkableLayers}).forEach(f=>{
-          if(!seenFIds.has(f.id)){ seenFIds.add(f.id); allFeatures.push(f); }
-        });
-      }catch(e){}
-    });
-  }
-
-  // Query at player centre
-  collectFeatures();
-
-  // Pan to 4 compass offsets and query each for wider coverage
-  const offsetDeg = 0.006; // ~450m offset
-  const offsets = [
-    [lng+offsetDeg, lat], [lng-offsetDeg, lat],
-    [lng, lat+offsetDeg], [lng, lat-offsetDeg],
-  ];
-  for(const [oLng, oLat] of offsets){
-    map.jumpTo({center:[oLng, oLat], zoom: WIDE_ZOOM});
-    await new Promise(res => {
-      const c = () => { if(map.areTilesLoaded()){ map.off('idle',c); res(); } };
-      map.on('idle', c); setTimeout(res, 2000);
-    });
-    collectFeatures();
-  }
-
-  // Return to player position
-  map.jumpTo({center:[lng, lat], zoom: WIDE_ZOOM});
-  await new Promise(res => {
-    const c = () => { if(map.areTilesLoaded()){ map.off('idle',c); res(); } };
-    map.on('idle', c); setTimeout(res, 1500);
-  });
-  collectFeatures();
-
-  const features = allFeatures;
-
-  if(true){  // features already collected above
-
-    features
-      .filter(f => {
-        if(!f.geometry) return false;
-        if(f.geometry.type !== 'LineString' && f.geometry.type !== 'MultiLineString') return false;
-        const cls = (f.properties?.class || f.properties?.type || '').toLowerCase();
-        if(EXCLUDE_CLASSES.has(cls)) return false;
-        return true;
-      })
-      .forEach(feature => {
-        const lines = feature.geometry.type === 'LineString'
-          ? [feature.geometry.coordinates]
-          : feature.geometry.coordinates;
-
-        lines.forEach(coords => {
-          let accumDist = 0;
-          for(let i = 0; i < coords.length - 1; i++){
-            const [lng1, lat1] = coords[i];
-            const [lng2, lat2] = coords[i+1];
-            const segLen = haversineM(lat1, lng1, lat2, lng2);
-            if(segLen < 1 || segLen > 500) continue;
-            accumDist += segLen;
-            if(accumDist < DOT_SPACING_M) continue;
-            accumDist = 0;
-            const midLat = (lat1 + lat2) / 2;
-            const midLng = (lng1 + lng2) / 2;
-            candidates.push({ lat: midLat, lng: midLng });
-          }
-        });
-      });
-  }
-
-  // Step 4: Deduplicate and register dots
-  candidates.sort((a, b) =>
-    haversineM(lat, lng, a.lat, a.lng) - haversineM(lat, lng, b.lat, b.lng)
-  );
-
-  const placed = [];
-  candidates.forEach(c => {
-    const tooClose = placed.some(p => haversineM(c.lat, c.lng, p.lat, p.lng) < DEDUP_RADIUS_M);
-    if(tooClose) return;
-    const id = dotIdFromCoords(c.lat, c.lng);
-    if(existingIds.has(id)) return;
-    existingIds.add(id);
-    placed.push(c);
-    const golden = Math.random() < GOLDEN_CHANCE;
-    registerDot(id, c.lat, c.lng, golden ? 'golden' : 'regular', golden ? 10 : 1);
-  });
-
-  // Fallback if very few dots placed
-  if(placed.length < 15) spawnDotsGrid(lat, lng, existingIds);
-
-  // Step 5: Fly smoothly back to walking zoom
-  map.flyTo({ center: [lng, lat], zoom: walkingZoom, speed: 2.5, curve: 1 });
-
-  // Step 6: Update GL layer once back at walking zoom
-  map.once('moveend', ()=>{
-    refreshDotLayer();
-    updateNearby(lat, lng);
-    spawnInProgress = false;
-    showToast(ICONS.walk, `${placed.length} dots loaded nearby`);
-  });
-}
-
-// Walkable Mapbox road class values to INCLUDE
-const WALKABLE_CLASSES = new Set([
-  'street', 'street_limited', 'pedestrian', 'path',
-  'secondary', 'tertiary', 'primary',
-  'service', 'track', 'link',
-  // park-specific
-  'pedestrian', 'footway', 'steps', 'cycleway',
-]);
-
-// Road class values to EXCLUDE (non-walkable)
-const EXCLUDE_CLASSES = new Set([
-  'motorway', 'motorway_link', 'trunk', 'trunk_link',
-  'ferry', 'aerialway',
-]);
-
-async function spawnDotsAround(lat, lng){
-  if(!map || spawnInProgress) return;
-  spawnInProgress = true;
-
-  // Wait for tiles to fully render before querying
-  await new Promise(res => {
-    if(map.isStyleLoaded() && map.areTilesLoaded()) return res();
-    const check = () => { if(map.areTilesLoaded()){ map.off('idle', check); res(); } };
-    map.on('idle', check);
-    setTimeout(res, 4000); // max wait 4s
-  });
-
-  // Get all layers — include road AND path/pedestrian layers
-  const allLayers = map.getStyle().layers.map(l => l.id);
-  const walkableLayers = allLayers.filter(id => {
-    const l = id.toLowerCase();
-    return (
-      l.includes('road') ||
-      l.includes('path') ||
-      l.includes('pedestrian') ||
-      l.includes('footway') ||
-      l.includes('walk') ||
-      l.includes('cycleway') ||
-      l.includes('steps') ||
-      l.includes('trail') ||
-      l.includes('track')
-    );
-  });
-
-  const existingIds = new Set(Object.keys(DOT_DB));
-  // Candidate dot positions before dedup
-  const candidates = []; // {lat, lng, isPark}
-
-  if(walkableLayers.length > 0){
-    let features = [];
-    // Query in a 3x3 grid across the viewport to capture features
-    // that may be off-centre — this ensures full street coverage
-    const W = map.getCanvas().width  / (window.devicePixelRatio || 1);
-    const H = map.getCanvas().height / (window.devicePixelRatio || 1);
-    const gridPoints = [
-      [W*0.1, H*0.1],[W*0.5, H*0.1],[W*0.9, H*0.1],
-      [W*0.1, H*0.5],[W*0.5, H*0.5],[W*0.9, H*0.5],
-      [W*0.1, H*0.9],[W*0.5, H*0.9],[W*0.9, H*0.9],
-    ];
-    // Full viewport query first
-    try{ features = map.queryRenderedFeatures(undefined, {layers: walkableLayers}); }
-    catch(e){}
-    // Then supplement with point queries at grid positions
-    gridPoints.forEach(pt => {
-      try{
-        const pf = map.queryRenderedFeatures(pt, {layers: walkableLayers});
-        pf.forEach(f => { if(!features.find(x => x.id === f.id)) features.push(f); });
-      }catch(e){}
-    });
-
-    features
-      .filter(f => {
-        if(!f.geometry) return false;
-        if(f.geometry.type !== 'LineString' && f.geometry.type !== 'MultiLineString') return false;
-        // Exclude non-walkable road classes
-        const cls = (f.properties?.class || f.properties?.type || '').toLowerCase();
-        if(EXCLUDE_CLASSES.has(cls)) return false;
-        return true;
-      })
-      .forEach(feature => {
-        const isPark = (feature.properties?.class || '').match(/pedestrian|path|footway|steps|track/i);
-        const lines = feature.geometry.type === 'LineString'
-          ? [feature.geometry.coordinates]
-          : feature.geometry.coordinates;
-
-        lines.forEach(coords => {
-          // Walk the line placing candidates every DOT_SPACING_M metres
-          let accumDist = 0;
-          for(let i = 0; i < coords.length - 1; i++){
-            const [lng1, lat1] = coords[i];
-            const [lng2, lat2] = coords[i+1];
-            const segLen = haversineM(lat1, lng1, lat2, lng2);
-            if(segLen < 1 || segLen > 500) continue;
-
-            accumDist += segLen;
-            if(accumDist < DOT_SPACING_M) continue;
-            accumDist = 0; // reset after placing
-
-            // Place at midpoint of this segment
-            const midLat = (lat1 + lat2) / 2;
-            const midLng = (lng1 + lng2) / 2;
-
-            const distToPlayer = haversineM(lat, lng, midLat, midLng);
-            if(distToPlayer > SPAWN_RADIUS_M) continue;
-
-            candidates.push({ lat: midLat, lng: midLng, isPark: !!isPark });
-          }
-        });
-      });
-  }
-
-  // ── Spatial deduplication ──
-  // Sort by distance from player (place closer ones first)
-  candidates.sort((a, b) =>
-    haversineM(lat, lng, a.lat, a.lng) - haversineM(lat, lng, b.lat, b.lng)
-  );
-
-  const placed = []; // accepted dot positions
-  let count = 0;
-
-  candidates.forEach(c => {
-    // Reject if too close to any already-placed dot
-    const tooClose = placed.some(p => haversineM(c.lat, c.lng, p.lat, p.lng) < DEDUP_RADIUS_M);
-    if(tooClose) return;
-
-    const id = dotIdFromCoords(c.lat, c.lng);
-    if(existingIds.has(id)) return;
-    existingIds.add(id);
-    placed.push(c);
-
-    const golden = Math.random() < GOLDEN_CHANCE;
-    const type   = golden ? 'golden' : 'regular';
-    const pts    = golden ? 10 : 1;
-    registerDot(id, c.lat, c.lng, type, pts);
-    count++;
-  });
-
-  // Fallback if road snap found nothing
-  if(count < 8) spawnDotsGrid(lat, lng, existingIds);
-
-  refreshDotLayer();
-  spawnInProgress = false;
-  updateNearby(lat, lng);
-}
-
-function spawnDotsGrid(lat, lng, seen = new Set()){
-  // Grid fallback — use same dedup radius to keep density consistent
-  const placed = [];
-  const steps = Math.ceil(SPAWN_RADIUS_M / DOT_SPACING_M);
-  for(let dx = -steps; dx <= steps; dx++){
-    for(let dy = -steps; dy <= steps; dy++){
-      const dxM = dx * DOT_SPACING_M, dyM = dy * DOT_SPACING_M;
-      if(Math.sqrt(dxM*dxM + dyM*dyM) > SPAWN_RADIUS_M) continue;
-      const pos = offset(lat, lng, dyM, dxM);
-      const tooClose = placed.some(p => haversineM(pos.lat, pos.lng, p.lat, p.lng) < DEDUP_RADIUS_M);
-      if(tooClose) continue;
-      const id = dotIdFromCoords(pos.lat, pos.lng);
-      if(seen.has(id) || DOT_DB[id]) continue;
-      seen.add(id); placed.push(pos);
-      const golden = Math.random() < GOLDEN_CHANCE;
-      registerDot(id, pos.lat, pos.lng, golden ? 'golden' : 'regular', golden ? 10 : 1);
+      const { type, pts } = dotTypeFromId(id);
+      DOT_DB[id] = { id, lat: cLat, lng: cLng, type, pts, label: null };
+      added++;
     }
   }
+
+  if(added > 0) refreshDotLayer();
+  updateNearby(lat, lng);
 }
 
 function spawnLandmarkDots(lat, lng){
   NYC_LANDMARKS.forEach((lm, i) => {
     const id = `landmark_${i}`;
     if(DOT_DB[id]) return;
-    if(haversineM(lat, lng, lm.lat, lm.lng) > 5000) return;
-    registerDot(id, lm.lat, lm.lng, 'landmark', lm.pts, lm.name);
+    if(haversineM(lat, lng, lm.lat, lm.lng) > 6000) return;
+    DOT_DB[id] = { id, lat: lm.lat, lng: lm.lng, type: 'landmark', pts: lm.pts, label: lm.name };
   });
+  refreshDotLayer();
 }
 
 function registerDot(id, lat, lng, type, pts, label){
@@ -1453,7 +1240,7 @@ function collectDot(id, lat, lng, type, pts, label){
 
   const sp = lngLatToScreen(lng, lat);
   if(sp){
-    spawnBurst(sp.x, sp.y, type==='golden'?'#F0B429':type==='landmark'?'#ffffff':'#0EB8A0');
+    spawnBurst(sp.x, sp.y, type==='golden'?'#F0B429':type==='landmark'?'#0EB8A0':'#0EB8A0');
     spawnScorePop(sp.x, sp.y, pts, type);
   }
   if(type === 'golden')    showToast(ICONS.star, `Golden dot — +${pts} pts! ⭐`);
@@ -1520,13 +1307,12 @@ function startWatch(){
       setGPS('active',`±${Math.round(acc)}m`);
       movePlayer(lat,lng);
 
-      // Spawn new dots whenever player moves 150m from last spawn point
-      // This ensures dots always appear ahead of the player
+      // Expand grid as player walks into new areas (every 150m)
       if(!startWatch._last) startWatch._last = {lat, lng};
       const movedM = haversineM(lat, lng, startWatch._last.lat, startWatch._last.lng);
-      if(movedM > 120){
+      if(movedM > 150){
         startWatch._last = {lat, lng};
-        spawnDotsAround(lat, lng); // async — waits for tiles, then spawns
+        spawnDotsAround(lat, lng); // fast — just adds new grid cells, no tile queries
         spawnLandmarkDots(lat, lng);
       }
     },
@@ -1761,7 +1547,7 @@ function spawnBurst(x,y,color='#F0B429'){
 function spawnScorePop(x,y,pts,type){
   const bc=document.getElementById('burstContainer');
   const pop=document.createElement('div');pop.className='score-pop';
-  const c=type==='golden'?'#F0B429':type==='landmark'?'#fff':'#0EB8A0';
+  const c=type==='golden'?'#F0B429':type==='landmark'?'#0EB8A0':'#0EB8A0';
   pop.style.cssText=`left:${x+8}px;top:${y-10}px;color:${c};font-size:${pts>=10?17:pts>=5?15:13}px;text-shadow:0 2px 12px ${c}66`;
   pop.textContent=`+${pts}`;bc.appendChild(pop);setTimeout(()=>pop.remove(),800);
 }
@@ -1793,21 +1579,20 @@ function scheduleMidnight(){
 let sheetOpen = true;
 function toggleSheet(){
   sheetOpen = !sheetOpen;
-  const sheet = document.getElementById('sheet');
-  sheet.classList.toggle('collapsed', !sheetOpen);
-
-  // Shift walk button + fabs so they clear the sheet edge
+  const sheet    = document.getElementById('sheet');
   const walkWrap = document.querySelector('.walk-wrap');
   const fabs     = document.querySelector('.fabs');
-  const T = 'bottom 0.35s cubic-bezier(0.32,0.72,0,1)';
-  walkWrap.style.transition = T;
-  fabs.style.transition     = T;
+
+  sheet.classList.toggle('collapsed', !sheetOpen);
+
   if(sheetOpen){
+    // Sheet open — restore default bottom positioning
     walkWrap.style.bottom = '';
     fabs.style.bottom     = '';
   } else {
-    walkWrap.style.bottom = '70px';
-    fabs.style.bottom     = '68px';
+    // Sheet collapsed — move walk btn and fabs to just above the handle bar
+    walkWrap.style.bottom = 'calc(var(--safe-bottom) + 66px)';
+    fabs.style.bottom     = 'calc(var(--safe-bottom) + 66px)';
   }
 }
 

@@ -154,11 +154,13 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
 .sheet{
   position:absolute;bottom:0;left:0;right:0;
   height:calc(var(--safe-bottom) + 242px);
+  max-height:calc(var(--safe-bottom) + 242px);
   background:var(--glass);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
   border-top:1px solid var(--border2);border-radius:22px 22px 0 0;
   z-index:30;display:flex;flex-direction:column;
   box-shadow:0 -8px 48px rgba(0,0,0,.55);
-  transition:transform 0.38s cubic-bezier(0.32,0.72,0,1);
+  transition:max-height 0.35s cubic-bezier(0.32,0.72,0,1);
+  overflow:hidden;
 }
 .handle{display:none} /* replaced by sheet-tab */
 .sheet-tab{
@@ -367,17 +369,14 @@ html,body{height:100%;height:100dvh;background:var(--bg);color:var(--text);font-
   margin-left:6px;vertical-align:middle;
 }
 
-.sheet{
-  transition: height 0.35s cubic-bezier(0.32,0.72,0,1);
-}
 .sheet.collapsed{
-  height: 52px !important; /* just show the handle bar + chevron */
-  overflow: hidden;
+  max-height: 52px !important;
 }
 .sheet.collapsed .sheet-nav,
 .sheet.collapsed .sheet-content{
   opacity: 0;
   pointer-events: none;
+  transition: opacity 0.2s;
 }
 .sheet-tab{
   display: flex;
@@ -762,12 +761,15 @@ function initMap(lat,lng){
     spawnFriendMarkers(lat,lng);
     addNeighbourhoodLayers();
     initDotLayers();
-    // Fixed grid spawn — instant, no tile queries, fully deterministic
-    spawnDotsAround(lat, lng);
-    spawnLandmarkDots(lat, lng);
-    // Restore today's eaten state and trail
-    restoreEatenDots();
-    restoreTodayTrail();
+    // Build road cache from loaded tiles, then spawn grid dots
+    // Short delay ensures road tiles are rendered before query
+    setTimeout(()=>{
+      buildRoadCache();
+      spawnDotsAround(lat, lng);
+      spawnLandmarkDots(lat, lng);
+      restoreEatenDots();
+      restoreTodayTrail();
+    }, 1200);
     updateUI();
     updateLB('day');
     updateTerritories();
@@ -1153,33 +1155,102 @@ function refreshDotLayer(){
    Deterministic type assignment — same cell always same type.
    Called once on load and when player moves into a new area.
 ════════════════════════════════════════════════════════════ */
+/* Road point cache — filled on first spawn, reused after.
+   Keys are "lat4_lng4" strings. Values are {lat, lng}.
+   Only road-adjacent positions are stored here. */
+const roadPointCache = new Set();
+let roadCacheReady = false;
+
+function buildRoadCache(){
+  if(roadCacheReady || !map || !map.isStyleLoaded()) return;
+
+  const allLayers = map.getStyle().layers.map(l => l.id);
+  const walkable  = allLayers.filter(id => {
+    const l = id.toLowerCase();
+    return l.includes('road') || l.includes('path') || l.includes('pedestrian') ||
+           l.includes('footway') || l.includes('walk') || l.includes('cycleway') ||
+           l.includes('steps') || l.includes('trail');
+  });
+  if(!walkable.length) return;
+
+  // Exclude motorways — not walkable
+  const EXCLUDE = new Set(['motorway','motorway_link','trunk','trunk_link','ferry']);
+
+  let features = [];
+  try{ features = map.queryRenderedFeatures(undefined, {layers: walkable}); }
+  catch(e){}
+
+  // Also query at grid of screen points for full coverage
+  const W = map.getCanvas().width/(window.devicePixelRatio||1);
+  const H = map.getCanvas().height/(window.devicePixelRatio||1);
+  [[W*.25,H*.25],[W*.75,H*.25],[W*.25,H*.75],[W*.75,H*.75],
+   [W*.5,H*.5],[W*.5,H*.1],[W*.5,H*.9],[W*.1,H*.5],[W*.9,H*.5]].forEach(pt=>{
+    try{
+      map.queryRenderedFeatures(pt,{layers:walkable}).forEach(f=>{
+        if(!features.find(x=>x.id===f.id)) features.push(f);
+      });
+    }catch(e){}
+  });
+
+  features.forEach(f=>{
+    if(!f.geometry) return;
+    const cls = (f.properties?.class||f.properties?.type||'').toLowerCase();
+    if(EXCLUDE.has(cls)) return;
+    const lines = f.geometry.type==='LineString' ? [f.geometry.coordinates]
+                : f.geometry.type==='MultiLineString' ? f.geometry.coordinates : [];
+    lines.forEach(coords=>{
+      coords.forEach(([lng,lat])=>{
+        // Snap to grid and store
+        const g = snapToGrid(lat, lng);
+        roadPointCache.add(`${g.lat}_${g.lng}`);
+      });
+    });
+  });
+
+  roadCacheReady = roadPointCache.size > 0;
+}
+
+function isNearRoad(lat, lng){
+  if(!roadCacheReady) return true; // if no cache yet, allow all (fallback)
+  // Check if any cached road point is within 25m
+  const g = snapToGrid(lat, lng);
+  // Check this cell and immediate neighbours
+  for(let dlat=-1; dlat<=1; dlat++){
+    for(let dlng=-1; dlng<=1; dlng++){
+      const tLat = Math.round((g.lat + dlat*GRID_LAT)*1e6)/1e6;
+      const tLng = Math.round((g.lng + dlng*GRID_LNG)*1e6)/1e6;
+      if(roadPointCache.has(`${tLat}_${tLng}`)) return true;
+    }
+  }
+  return false;
+}
+
 function spawnDotsAround(lat, lng){
   if(!map || !glSourceReady) return;
 
-  // How many grid cells to cover in each direction
+  // Build road cache from current tile data if not done yet
+  buildRoadCache();
+
   const latSteps = Math.ceil(SPAWN_RADIUS_M / (GRID_LAT * 111320));
   const lngSteps = Math.ceil(SPAWN_RADIUS_M / (GRID_LNG * 111320));
-
-  // Snap player position to grid
-  const origin = snapToGrid(lat, lng);
+  const origin   = snapToGrid(lat, lng);
 
   let added = 0;
   for(let dlat = -latSteps; dlat <= latSteps; dlat++){
     for(let dlng = -lngSteps; dlng <= lngSteps; dlng++){
-      const cLat = Math.round((origin.lat + dlat * GRID_LAT) * 1e6) / 1e6;
-      const cLng = Math.round((origin.lng + dlng * GRID_LNG) * 1e6) / 1e6;
+      const cLat = Math.round((origin.lat + dlat*GRID_LAT)*1e6)/1e6;
+      const cLng = Math.round((origin.lng + dlng*GRID_LNG)*1e6)/1e6;
 
-      // Skip if outside circular spawn radius
-      const distM = haversineM(lat, lng, cLat, cLng);
-      if(distM > SPAWN_RADIUS_M) continue;
+      if(haversineM(lat, lng, cLat, cLng) > SPAWN_RADIUS_M) continue;
+
+      // Only place dots near walkable roads
+      if(!isNearRoad(cLat, cLng)) continue;
 
       const id = dotIdFromCoords(cLat, cLng);
-
-      // Already in DOT_DB — skip (never duplicate)
       if(DOT_DB[id]) continue;
 
       const { type, pts } = dotTypeFromId(id);
-      DOT_DB[id] = { id, lat: cLat, lng: cLng, type, pts, label: null };
+      DOT_DB[id] = { id, lat:cLat, lng:cLng, type, pts, label:null };
       added++;
     }
   }
@@ -1312,8 +1383,13 @@ function startWatch(){
       const movedM = haversineM(lat, lng, startWatch._last.lat, startWatch._last.lng);
       if(movedM > 150){
         startWatch._last = {lat, lng};
-        spawnDotsAround(lat, lng); // fast — just adds new grid cells, no tile queries
-        spawnLandmarkDots(lat, lng);
+        // Rebuild road cache for new area then spawn
+        roadCacheReady = false;
+        setTimeout(()=>{
+          buildRoadCache();
+          spawnDotsAround(lat, lng);
+          spawnLandmarkDots(lat, lng);
+        }, 800); // short wait for new tiles to render
       }
     },
     _=>setGPS('error','GPS lost'),
@@ -1582,17 +1658,18 @@ function toggleSheet(){
   const sheet    = document.getElementById('sheet');
   const walkWrap = document.querySelector('.walk-wrap');
   const fabs     = document.querySelector('.fabs');
-
-  sheet.classList.toggle('collapsed', !sheetOpen);
+  const chevron  = document.getElementById('sheetChevron');
 
   if(sheetOpen){
-    // Sheet open — restore default bottom positioning
+    sheet.classList.remove('collapsed');
     walkWrap.style.bottom = '';
     fabs.style.bottom     = '';
+    if(chevron) chevron.style.transform = '';
   } else {
-    // Sheet collapsed — move walk btn and fabs to just above the handle bar
+    sheet.classList.add('collapsed');
     walkWrap.style.bottom = 'calc(var(--safe-bottom) + 66px)';
     fabs.style.bottom     = 'calc(var(--safe-bottom) + 66px)';
+    if(chevron) chevron.style.transform = 'rotate(180deg)';
   }
 }
 

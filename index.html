@@ -31,7 +31,6 @@
 }
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
 .shell{position:relative;height:100vh;max-width:430px;margin:0 auto;overflow:hidden}
-
 #map{position:absolute;inset:0;width:100%;height:100%}
 .mapboxgl-ctrl-logo{display:none!important}
 .mapboxgl-ctrl-bottom-right{bottom:calc(var(--sh) + 10px)!important;right:10px!important}
@@ -42,12 +41,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 
 /* TOPBAR */
 .topbar{position:absolute;top:calc(var(--st) + 12px);left:14px;right:14px}
-.topbar-inner{
-  display:flex;align-items:center;gap:10px;
-  background:var(--glass);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
-  border:1px solid var(--border2);border-radius:18px;padding:10px 12px;
-  box-shadow:0 8px 32px rgba(0,0,0,.5);
-}
+.topbar-inner{display:flex;align-items:center;gap:10px;background:var(--glass);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid var(--border2);border-radius:18px;padding:10px 12px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
 .brand{flex:1;display:flex;align-items:center;gap:9px}
 .brand-name{display:flex;align-items:center;font-size:16px;font-weight:900;letter-spacing:-.04em;line-height:1}
 .bn1{color:var(--text)}.bnsep{width:4px;height:4px;border-radius:50%;background:var(--gold);margin:0 4px 1px;display:inline-block}.bn2{color:var(--gold)}
@@ -73,7 +67,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 .cht-bar{height:100%;background:var(--teal);border-radius:2px;transition:width .4s}
 .ch-badge{background:var(--teal-dim);border:1px solid var(--teal-border);border-radius:8px;padding:3px 8px;font-size:10px;font-weight:700;color:var(--teal-light);flex-shrink:0}
 
-/* GPS */
+/* GPS / loading */
 .gps-badge{position:absolute;top:calc(var(--st) + 222px);left:14px;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border2);border-radius:12px;padding:6px 11px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--text2)}
 .gps-badge.active{border-color:rgba(34,197,94,.3);color:var(--green)}
 .gps-badge.error{border-color:rgba(239,68,68,.3);color:var(--red)}
@@ -81,6 +75,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 .gps-badge.active .gdot{animation:lp 1.5s infinite}
 .nearby-badge{position:absolute;top:calc(var(--st) + 222px);right:14px;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border);border-radius:12px;padding:6px 11px;font-size:11px;font-weight:600;color:var(--text2)}
 .nearby-badge span{color:var(--gold)}
+
+/* DOT LOADING OVERLAY */
+#dotLoader{position:absolute;top:calc(var(--st) + 260px);left:50%;transform:translateX(-50%);background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border2);border-radius:12px;padding:7px 14px;font-size:11px;font-weight:600;color:var(--text2);white-space:nowrap;z-index:20;transition:opacity .4s}
+#dotLoader.gone{opacity:0;pointer-events:none}
 
 /* WALK BUTTON */
 .walk-wrap{position:absolute;bottom:calc(var(--sb) + var(--sh) + 16px);left:50%;transform:translateX(-50%);transition:bottom .35s cubic-bezier(.32,.72,0,1)}
@@ -99,24 +97,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 .fab:active{transform:scale(.93)}
 
 /* SHEET */
-.sheet{
-  position:absolute;bottom:0;left:0;right:0;
-  height:var(--sh);
-  background:var(--glass);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
-  border-top:1px solid var(--border2);border-radius:22px 22px 0 0;
-  z-index:30;display:flex;flex-direction:column;
-  box-shadow:0 -8px 48px rgba(0,0,0,.55);
-  overflow:hidden;
-  transition:height .35s cubic-bezier(.32,.72,0,1);
-}
+.sheet{position:absolute;bottom:0;left:0;right:0;height:var(--sh);background:var(--glass);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border-top:1px solid var(--border2);border-radius:22px 22px 0 0;z-index:30;display:flex;flex-direction:column;box-shadow:0 -8px 48px rgba(0,0,0,.55);overflow:visible;transition:height .35s cubic-bezier(.32,.72,0,1)}
 .sheet.collapsed{height:52px}
-.sheet.collapsed .sheet-nav,
-.sheet.collapsed .sheet-body{opacity:0;pointer-events:none}
-.sheet-handle{display:flex;flex-direction:column;align-items:center;padding:10px 0 4px;cursor:pointer;flex-shrink:0;user-select:none;-webkit-tap-highlight-color:rgba(0,0,0,0)}
+.sheet.collapsed .sheet-nav,.sheet.collapsed .sheet-body{opacity:0;pointer-events:none}
+.sheet-handle{display:flex;flex-direction:column;align-items:center;padding:10px 0 4px;cursor:pointer;flex-shrink:0;user-select:none;pointer-events:all;min-height:52px;justify-content:center;background:var(--glass);border-radius:22px 22px 0 0;position:relative;z-index:1}
 .handle-bar{width:36px;height:4px;background:rgba(255,255,255,.14);border-radius:2px}
 .handle-chev{margin-top:4px;transition:transform .3s}
 .sheet.collapsed .handle-chev{transform:rotate(180deg)}
-
+.sheet-nav{overflow:hidden}
+.sheet-body{overflow:hidden}
 .sheet-nav{display:flex;padding:6px 14px 0;gap:4px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
 .sheet-nav::-webkit-scrollbar{display:none}
 .snav{padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--text2);font-family:'Outfit',sans-serif;transition:all .18s;white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:5px}
@@ -125,7 +114,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 .snav.og svg{stroke:var(--gold)}
 .snav.ot{background:var(--teal-dim);border-color:var(--teal-border);color:var(--teal-light)}
 .snav.ot svg{stroke:var(--teal-light)}
-
 .sheet-body{flex:1;overflow:hidden;position:relative;min-height:0}
 .panel{position:absolute;inset:0;display:flex;flex-direction:column;transition:opacity .2s,transform .2s}
 .panel.hidden{opacity:0;pointer-events:none;transform:translateY(6px)}
@@ -264,7 +252,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 <div class="shell">
   <div id="map"></div>
   <div class="ui">
-    <!-- Topbar -->
     <div class="topbar">
       <div class="topbar-inner">
         <div class="brand">
@@ -292,14 +279,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
       </div>
     </div>
 
-    <!-- Scores -->
     <div class="score-row">
       <div class="sp"><span class="v" id="scoreToday">0</span><span class="l">Today</span></div>
       <div class="sp"><span class="v" id="scoreWeek">0</span><span class="l">Week</span></div>
       <div class="sp"><span class="v" id="scoreAll">0</span><span class="l">All Time</span></div>
     </div>
 
-    <!-- Challenge banner -->
     <div class="ch-banner" onclick="showPanel('challenges',null,'ot')">
       <svg width="14" height="18" viewBox="0 0 16 20" fill="none" stroke="var(--teal)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M9 1L1 11h7l-1 8 8-10H8L9 1z"/></svg>
       <div class="cht">
@@ -310,11 +295,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
       <div class="ch-badge">+300 pts</div>
     </div>
 
-    <!-- GPS / Nearby -->
     <div class="gps-badge" id="gpsBadge"><div class="gdot"></div><span id="gpsLbl">Searching…</span></div>
     <div class="nearby-badge"><span id="nearbyCount">–</span> nearby</div>
+    <div id="dotLoader">⬤ Loading road dots…</div>
 
-    <!-- Walk button -->
     <div class="walk-wrap" id="walkWrap">
       <button class="walk-btn" id="walkBtn" onclick="toggleWalk()">
         <div class="wdot" id="wdot"></div>
@@ -325,7 +309,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
       </button>
     </div>
 
-    <!-- Fabs -->
     <div class="fabs" id="fabs">
       <div class="fab" onclick="centerMap()">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
@@ -338,10 +321,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
     <div class="burst-wrap" id="bw"></div>
   </div>
 
-  <!-- Toast -->
   <div class="toast" id="toast"><div class="toast-icon" id="tIcon"></div><div id="tMsg"></div></div>
 
-  <!-- Sheet -->
   <div class="sheet" id="sheet">
     <div class="sheet-handle" onclick="toggleSheet()">
       <div class="handle-bar"></div>
@@ -393,15 +374,14 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 </div>
 
 <script>
-/* CONFIG */
-const TOKEN     = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNWYydG9razNwczlueDgifQ.h4r5WT2jyr93yWdzuigUAA';
-const COLLECT_M = 18;
-const SPAWN_M   = 600;
-const GRID_LAT  = 0.00022;
-const GRID_LNG  = 0.00028;
-const GOLD_PCT  = 4;
+/* ─── CONFIG ─────────────────────────────────────────────── */
+const TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNWYydG9razNwczlueDgifQ.h4r5WT2jyr93yWdzuigUAA';
+const COLLECT_M  = 18;      // metres to collect a dot
+const DOT_STEP_M = 12;      // metres between dots along road (Pac-Man density)
+const SPAWN_R_M  = 2000;    // pre-load radius in metres
+const GOLD_PCT   = 4;       // % chance a dot is golden
 
-/* STORAGE */
+/* ─── STORAGE ────────────────────────────────────────────── */
 const SK = 'wagawaga';
 const toDay = () => new Date().toISOString().split('T')[0];
 
@@ -415,7 +395,7 @@ function blank(){
 function loadStore(){
   try{
     const raw=localStorage.getItem(SK);
-    if(!raw) return blank();
+    if(!raw)return blank();
     const s=JSON.parse(raw);
     const b=blank();
     Object.keys(b).forEach(k=>{if(s[k]===undefined)s[k]=b[k];});
@@ -432,11 +412,10 @@ function loadStore(){
     return s;
   }catch(e){return blank();}
 }
-
 let S=loadStore();
 const save=()=>localStorage.setItem(SK,JSON.stringify(S));
 
-/* DATA */
+/* ─── STATIC DATA ────────────────────────────────────────── */
 const LB={
   day:[{n:'Jordan K.',loc:'Upper West Side',score:412,av:'JK',c:'#3A4A6B'},{n:'Priya M.',loc:'Brooklyn Hts',score:388,av:'PM',c:'#2C3E50'},{n:'Devon R.',loc:'Astoria',score:210,av:'DR',c:'#253040'},{n:'Sam W.',loc:'Williamsburg',score:189,av:'SW',c:'#1A2E2C'},{n:'Taylor B.',loc:'Park Slope',score:144,av:'TB',c:'#222A3A'}],
   week:[{n:'Priya M.',loc:'Brooklyn Hts',score:2105,av:'PM',c:'#2C3E50'},{n:'Jordan K.',loc:'Upper West Side',score:1980,av:'JK',c:'#3A4A6B'},{n:'Sam W.',loc:'Williamsburg',score:1654,av:'SW',c:'#1A2E2C'},{n:'Devon R.',loc:'Astoria',score:1320,av:'DR',c:'#253040'},{n:'Taylor B.',loc:'Park Slope',score:998,av:'TB',c:'#222A3A'}],
@@ -473,178 +452,251 @@ const FRIENDS_CFG=[
   {n:'Sam W.',i:'SW',c:'#0EB8A0',spd:0.000042},{n:'Devon R.',i:'DR',c:'#253040',spd:0.000031},
 ];
 
-/* MAP STATE */
-mapboxgl.accessToken=TOKEN;
-let map=null,playerMarker=null,playerLat=null,playerLng=null;
-let tracking=false,watchId=null,ghostOn=false,ghostPts=[];
-let glReady=false;
-const DOTS={};
+/* ─── STATE ──────────────────────────────────────────────── */
+mapboxgl.accessToken = TOKEN;
+let map=null, playerMarker=null, playerLat=null, playerLng=null;
+let tracking=false, watchId=null, ghostOn=false, ghostPts=[];
+let dotsReady=false;
 
-/* GRID */
-function snapGrid(lat,lng){
-  return{
-    lat:Math.round(Math.round(lat/GRID_LAT)*GRID_LAT*1e6)/1e6,
-    lng:Math.round(Math.round(lng/GRID_LNG)*GRID_LNG*1e6)/1e6,
-  };
-}
-function dotId(lat,lng){const g=snapGrid(lat,lng);return`d_${Math.round(g.lat*10000)}_${Math.round(g.lng*10000)}`;}
-function dotType(id){
-  let h=0;for(let i=0;i<id.length;i++)h=(Math.imul(31,h)+id.charCodeAt(i))|0;
-  return Math.abs(h)%100<GOLD_PCT?{type:'golden',pts:10}:{type:'regular',pts:1};
-}
+/* Dot store: id → {id,lat,lng,type,pts,label} */
+const DOTS = {};
+
+/* ─── HELPERS ────────────────────────────────────────────── */
 function hav(lat1,lng1,lat2,lng2){
   const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
-/* GL LAYERS */
-function initGL(){
-  if(!map||map.getSource('dots'))return;
-  map.addSource('dots',{type:'geojson',data:buildGJ()});
-  map.addLayer({id:'dots-reg',type:'circle',source:'dots',
-    filter:['all',['==',['get','type'],'regular'],['==',['get','eaten'],false]],
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],'circle-color':'#0EB8A0','circle-opacity':0.88,'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.18)'}});
-  map.addLayer({id:'dots-gold',type:'circle',source:'dots',
-    filter:['all',['==',['get','type'],'golden'],['==',['get','eaten'],false]],
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,5,16,8,19,11],'circle-color':'#F0B429','circle-opacity':1,'circle-stroke-width':2,'circle-stroke-color':'#FFD166'}});
-  map.addLayer({id:'dots-lm',type:'circle',source:'dots',
-    filter:['all',['==',['get','type'],'landmark'],['==',['get','eaten'],false]],
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,7,16,11,19,15],'circle-color':'#ffffff','circle-opacity':1,'circle-stroke-width':3,'circle-stroke-color':'#0EB8A0'}});
-  map.addLayer({id:'dots-eaten',type:'circle',source:'dots',
-    filter:['==',['get','eaten'],true],
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,2.5,16,4,19,6],'circle-color':'rgba(255,255,255,0)','circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.13)'}});
-  glReady=true;
+function dotId(lat,lng){
+  // Snap to ~6m grid for dedup
+  const snLat=Math.round(lat*10000)/10000;
+  const snLng=Math.round(lng*10000)/10000;
+  return `d_${Math.round(snLat*100000)}_${Math.round(snLng*100000)}`;
 }
 
+function dotType(id){
+  let h=0;for(let i=0;i<id.length;i++)h=(Math.imul(31,h)+id.charCodeAt(i))|0;
+  return Math.abs(h)%100<GOLD_PCT?{type:'golden',pts:10}:{type:'regular',pts:1};
+}
+
+/* Interpolate points along a LineString at DOT_STEP_M intervals */
+function interpolateLine(coords){
+  const pts=[];
+  for(let i=0;i<coords.length-1;i++){
+    const [lng1,lat1]=coords[i], [lng2,lat2]=coords[i+1];
+    const segLen=hav(lat1,lng1,lat2,lng2);
+    const steps=Math.max(1,Math.floor(segLen/DOT_STEP_M));
+    for(let s=0;s<steps;s++){
+      const t=s/steps;
+      pts.push({lat:lat1+(lat2-lat1)*t, lng:lng1+(lng2-lng1)*t});
+    }
+  }
+  // Always include last point
+  if(coords.length>0){
+    const [lng,lat]=coords[coords.length-1];
+    pts.push({lat,lng});
+  }
+  return pts;
+}
+
+/* ─── ROAD DOT GENERATION ────────────────────────────────── */
+/*
+ * Strategy: use Mapbox GL's querySourceFeatures on the 'composite' source
+ * (which contains OSM road data) to extract walkable LineString geometry,
+ * then interpolate dots along every segment.  This fires once after the
+ * map has fully loaded and all tiles in the viewport are rendered.
+ *
+ * We expand the viewport query by temporarily zooming out to capture
+ * the full 2 km radius, then restore zoom.  To avoid the "blank tile"
+ * race we wait for the 'idle' event (all tiles loaded, no pending renders).
+ */
+
+const WALKABLE_CLASSES = new Set([
+  'street','street_limited','secondary','tertiary','primary',
+  'path','pedestrian','footway','track','steps','cycleway',
+  'residential','living_street','service','unclassified',
+  'trunk','motorway_link' // included for coverage, won't hurt
+]);
+
+const SKIP_CLASSES = new Set(['motorway','ferry','aerialway','golf']);
+
+function buildRoadDots(centerLat, centerLng){
+  document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
+
+  // We query at zoom 14 to get a wide tile coverage
+  const sourceId  = 'composite';
+  const roadLayer = 'road';
+
+  let allFeatures = [];
+
+  try {
+    // querySourceFeatures works on already-loaded tiles
+    allFeatures = map.querySourceFeatures(sourceId, {
+      sourceLayer: roadLayer
+    });
+  } catch(e) {
+    console.warn('querySourceFeatures failed', e);
+  }
+
+  // Fallback: query rendered features across a grid of screen points
+  if(allFeatures.length < 10){
+    const W = map.getCanvas().width  / (window.devicePixelRatio||1);
+    const H = map.getCanvas().height / (window.devicePixelRatio||1);
+    const grid=[];
+    for(let x=0;x<=4;x++) for(let y=0;y<=6;y++) grid.push([W*x/4, H*y/6]);
+    const seen=new Set();
+    grid.forEach(pt=>{
+      try{
+        map.queryRenderedFeatures(pt).forEach(f=>{
+          const key=f.id+'_'+f.layer.id;
+          if(!seen.has(key)){seen.add(key);allFeatures.push(f);}
+        });
+      }catch(e){}
+    });
+  }
+
+  let added=0;
+
+  allFeatures.forEach(f=>{
+    if(!f.geometry) return;
+    const cls = (f.properties?.class || f.properties?.type || f.layer?.['source-layer'] || '').toLowerCase();
+    if(SKIP_CLASSES.has(cls)) return;
+
+    const geom = f.geometry;
+    const linesets =
+      geom.type==='LineString'      ? [geom.coordinates] :
+      geom.type==='MultiLineString' ? geom.coordinates   : [];
+
+    linesets.forEach(coords=>{
+      interpolateLine(coords).forEach(({lat,lng})=>{
+        // Filter to 2 km radius
+        if(hav(centerLat,centerLng,lat,lng) > SPAWN_R_M) return;
+        const id = dotId(lat,lng);
+        if(DOTS[id]) return;
+        const {type,pts} = dotType(id);
+        DOTS[id]={id,lat,lng,type,pts,label:null};
+        added++;
+      });
+    });
+  });
+
+  // Add landmark dots within radius
+  LANDMARKS.forEach((lm,i)=>{
+    if(hav(centerLat,centerLng,lm.lat,lm.lng)>SPAWN_R_M) return;
+    const id=`lm_${i}`;
+    if(!DOTS[id]) DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name};
+    added++;
+  });
+
+  console.log(`[WagaWaga] Road dots generated: ${added} (total unique: ${Object.keys(DOTS).length})`);
+  document.getElementById('dotLoader').textContent=`✓ ${Object.keys(DOTS).length} dots loaded`;
+  setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
+
+  pushGL();
+  dotsReady=true;
+  if(playerLat!==null) updateNearby(playerLat,playerLng);
+}
+
+/* ─── GL LAYERS ──────────────────────────────────────────── */
 function buildGJ(){
   return{type:'FeatureCollection',features:Object.values(DOTS).map(d=>({
-    type:'Feature',geometry:{type:'Point',coordinates:[d.lng,d.lat]},
+    type:'Feature',
+    geometry:{type:'Point',coordinates:[d.lng,d.lat]},
     properties:{id:d.id,type:d.type,pts:d.pts,label:d.label||'',eaten:!!S.eatenIds[d.id]},
   }))};
 }
 
-function refreshGL(){if(!glReady||!map||!map.getSource('dots'))return;map.getSource('dots').setData(buildGJ());}
-
-/* ROAD CACHE */
-const roadCache=new Set();
-let roadCacheBuilt=false;
-
-function buildRoadCache(){
-  if(!map||!map.isStyleLoaded())return;
-  const all=map.getStyle().layers.map(l=>l.id);
-  const wk=all.filter(id=>{const l=id.toLowerCase();return l.includes('road')||l.includes('path')||l.includes('pedestrian')||l.includes('footway')||l.includes('walk')||l.includes('cycleway')||l.includes('steps')||l.includes('trail');});
-  if(!wk.length)return;
-  const EX=new Set(['motorway','motorway_link','trunk','trunk_link','ferry']);
-  let features=[];
-  try{features=map.queryRenderedFeatures(undefined,{layers:wk});}catch(e){}
-  const W=map.getCanvas().width/(devicePixelRatio||1),H=map.getCanvas().height/(devicePixelRatio||1);
-  [[W*.2,H*.2],[W*.5,H*.2],[W*.8,H*.2],[W*.2,H*.5],[W*.5,H*.5],[W*.8,H*.5],[W*.2,H*.8],[W*.5,H*.8],[W*.8,H*.8]].forEach(pt=>{
-    try{map.queryRenderedFeatures(pt,{layers:wk}).forEach(f=>{if(!features.find(x=>x.id===f.id))features.push(f);});}catch(e){}
-  });
-  features.forEach(f=>{
-    if(!f.geometry)return;
-    const cls=(f.properties?.class||f.properties?.type||'').toLowerCase();
-    if(EX.has(cls))return;
-    const lines=f.geometry.type==='LineString'?[f.geometry.coordinates]:f.geometry.type==='MultiLineString'?f.geometry.coordinates:[];
-    lines.forEach(coords=>coords.forEach(([lng,lat])=>{const g=snapGrid(lat,lng);roadCache.add(`${g.lat}_${g.lng}`);}));
-  });
-  roadCacheBuilt=roadCache.size>0;
-}
-
-function nearRoad(lat,lng){
-  if(!roadCacheBuilt)return true;
-  const g=snapGrid(lat,lng);
-  for(let dl=-1;dl<=1;dl++)for(let dg=-1;dg<=1;dg++){
-    const tl=Math.round((g.lat+dl*GRID_LAT)*1e6)/1e6,tg=Math.round((g.lng+dg*GRID_LNG)*1e6)/1e6;
-    if(roadCache.has(`${tl}_${tg}`))return true;
+function pushGL(){
+  if(!map) return;
+  const gj = buildGJ();
+  if(map.getSource('dots')){
+    map.getSource('dots').setData(gj);
+    return;
   }
-  return false;
+  map.addSource('dots',{type:'geojson',data:gj});
+
+  // Eaten (hollow outline)
+  map.addLayer({id:'dots-eaten',type:'circle',source:'dots',
+    filter:['==',['get','eaten'],true],
+    paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],13,2,16,3.5,19,5],
+      'circle-color':'rgba(255,255,255,0)',
+      'circle-stroke-width':1,
+      'circle-stroke-color':'rgba(255,255,255,0.12)'
+    }});
+
+  // Regular dots (teal)
+  map.addLayer({id:'dots-reg',type:'circle',source:'dots',
+    filter:['all',['==',['get','type'],'regular'],['==',['get','eaten'],false]],
+    paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],
+      'circle-color':'#0EB8A0',
+      'circle-opacity':0.9,
+      'circle-stroke-width':1,
+      'circle-stroke-color':'rgba(255,255,255,0.18)'
+    }});
+
+  // Golden dots
+  map.addLayer({id:'dots-gold',type:'circle',source:'dots',
+    filter:['all',['==',['get','type'],'golden'],['==',['get','eaten'],false]],
+    paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],13,5,16,8,19,11],
+      'circle-color':'#F0B429',
+      'circle-opacity':1,
+      'circle-stroke-width':2,
+      'circle-stroke-color':'#FFD166'
+    }});
+
+  // Landmark dots (white+teal ring)
+  map.addLayer({id:'dots-lm',type:'circle',source:'dots',
+    filter:['all',['==',['get','type'],'landmark'],['==',['get','eaten'],false]],
+    paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],13,7,16,11,19,15],
+      'circle-color':'#ffffff',
+      'circle-opacity':1,
+      'circle-stroke-width':3,
+      'circle-stroke-color':'#0EB8A0'
+    }});
 }
 
-/* SPAWN DOTS */
-function spawnDots(lat,lng){
-  if(!map||!glReady)return;
-  buildRoadCache();
-  const latS=Math.ceil(SPAWN_M/(GRID_LAT*111320)),lngS=Math.ceil(SPAWN_M/(GRID_LNG*111320));
-  const o=snapGrid(lat,lng);let added=0;
-  for(let dl=-latS;dl<=latS;dl++)for(let dg=-lngS;dg<=lngS;dg++){
-    const cLat=Math.round((o.lat+dl*GRID_LAT)*1e6)/1e6,cLng=Math.round((o.lng+dg*GRID_LNG)*1e6)/1e6;
-    if(hav(lat,lng,cLat,cLng)>SPAWN_M)continue;
-    if(!nearRoad(cLat,cLng))continue;
-    const id=dotId(cLat,cLng);if(DOTS[id])continue;
-    const{type,pts}=dotType(id);DOTS[id]={id,lat:cLat,lng:cLng,type,pts,label:null};added++;
-  }
-  if(added>0)refreshGL();
-  updateNearby(lat,lng);
+function refreshGL(){
+  if(!map||!map.getSource('dots')) return;
+  map.getSource('dots').setData(buildGJ());
 }
 
-function spawnLM(lat,lng){
-  LANDMARKS.forEach((lm,i)=>{
-    const id=`lm_${i}`;if(DOTS[id])return;
-    if(hav(lat,lng,lm.lat,lm.lng)>6000)return;
-    DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name};
-  });
-  refreshGL();
-}
-
-/* COLLECT */
-function checkCollect(lat,lng){
-  Object.values(DOTS).forEach(d=>{
-    if(S.eatenIds[d.id])return;
-    if(hav(lat,lng,d.lat,d.lng)<=COLLECT_M)collect(d);
-  });
-}
-
-function collect(d){
-  if(S.eatenIds[d.id])return;
-  S.eatenIds[d.id]=true;
-  S.todayDots+=d.pts;S.weekDots+=d.pts;S.allDots+=d.pts;S.walkedToday=true;
-  S.collectedToday.unshift({pts:d.pts,lat:d.lat,lng:d.lng,type:d.type,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
-  if(S.collectedToday.length>100)S.collectedToday.pop();
-  const c1=S.challenges?.find(c=>c.id==='c1');
-  if(c1&&!c1.done){c1.prog=S.todayDots;if(c1.prog>=c1.total){c1.done=true;showToast(ICO.star,'Challenge complete! +300 pts');}}
-  if(d.type==='golden'){const c4=S.challenges?.find(c=>c.id==='c4');if(c4&&!c4.done)c4.prog++;}
-  save();refreshGL();updateUI();renderCh();updateTrail();
-  burst(d.lng,d.lat,d.type);
-  if(d.type==='golden')showToast(ICO.star,`Golden dot! +${d.pts} pts`);
-  else if(d.type==='landmark')showToast(ICO.teal,`${d.label} — +${d.pts} pts!`);
-  nudge();
-}
-
-/* TRAIL */
-function updateTrail(){
-  if(!map||S.collectedToday.length<2)return;
-  const coords=S.collectedToday.slice().reverse().map(c=>[c.lng,c.lat]);
-  if(coords.length<2)return;
-  try{
-    if(map.getSource('trail'))map.getSource('trail').setData({type:'Feature',geometry:{type:'LineString',coordinates:coords}});
-    else{
-      map.addSource('trail',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
-      map.addLayer({id:'trail',type:'line',source:'trail',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'#F0B429','line-width':3,'line-opacity':0.38,'line-dasharray':[2,5]}});
-    }
-  }catch(e){}
-}
-
-/* MAP INIT */
+/* ─── MAP INIT ───────────────────────────────────────────── */
 function initMap(lat,lng){
-  map=new mapboxgl.Map({container:'map',style:'mapbox://styles/mapbox/dark-v11',center:[lng,lat],zoom:16,pitch:20,bearing:0,attributionControl:true});
+  map = new mapboxgl.Map({
+    container:'map',
+    style:'mapbox://styles/mapbox/dark-v11',
+    center:[lng,lat],
+    zoom:16,
+    pitch:20,
+    bearing:0,
+    attributionControl:true
+  });
+
   map.on('load',()=>{
     // Player marker
     const el=document.createElement('div');el.className='player-el';
     el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${S.initials||'?'}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
+
     // Friends
     spawnFriends(lat,lng);
-    // GL dots
-    initGL();
-    // Spawn after tiles load
-    setTimeout(()=>{spawnDots(lat,lng);spawnLM(lat,lng);refreshGL();updateTrail();},1500);
+
+    // Wait for idle (all tiles rendered) then generate dots once
+    map.once('idle', ()=>{
+      buildRoadDots(lat,lng);
+      updateTrail();
+    });
+
     updateUI();renderLB('day');renderTerr();renderCh();renderRecap();
   });
 }
 
-/* FRIENDS */
+/* ─── FRIENDS ────────────────────────────────────────────── */
 function spawnFriends(lat,lng){
   FRIENDS_CFG.forEach((f,i)=>{
     const ang=(i/FRIENDS_CFG.length)*Math.PI*2;
@@ -656,7 +708,7 @@ function spawnFriends(lat,lng){
   });
   setInterval(()=>{
     if(!map)return;
-    FRIENDS_CFG.forEach((f,i)=>{
+    FRIENDS_CFG.forEach(f=>{
       f.dir+=(Math.random()-.5)*.5;
       if(Math.random()<.3)f.dir=Math.round(f.dir/(Math.PI/2))*(Math.PI/2);
       const nLat=f.lat+Math.sin(f.dir)*f.spd*3500,nLng=f.lng+Math.cos(f.dir)*f.spd*3500;
@@ -667,7 +719,46 @@ function spawnFriends(lat,lng){
   },3500);
 }
 
-/* GHOST TRAIL */
+/* ─── COLLECT ────────────────────────────────────────────── */
+function checkCollect(lat,lng){
+  if(!dotsReady) return;
+  Object.values(DOTS).forEach(d=>{
+    if(S.eatenIds[d.id]) return;
+    if(hav(lat,lng,d.lat,d.lng)<=COLLECT_M) collect(d);
+  });
+}
+
+function collect(d){
+  if(S.eatenIds[d.id]) return;
+  S.eatenIds[d.id]=true;
+  S.todayDots+=d.pts;S.weekDots+=d.pts;S.allDots+=d.pts;S.walkedToday=true;
+  S.collectedToday.unshift({pts:d.pts,lat:d.lat,lng:d.lng,type:d.type,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
+  if(S.collectedToday.length>200) S.collectedToday.pop();
+  const c1=S.challenges?.find(c=>c.id==='c1');
+  if(c1&&!c1.done){c1.prog=S.todayDots;if(c1.prog>=c1.total){c1.done=true;showToast(ICO.star,'Challenge complete! +300 pts');}}
+  if(d.type==='golden'){const c4=S.challenges?.find(c=>c.id==='c4');if(c4&&!c4.done)c4.prog++;}
+  save();refreshGL();updateUI();renderCh();updateTrail();
+  burst(d.lng,d.lat,d.type);
+  if(d.type==='golden') showToast(ICO.star,`Golden dot! +${d.pts} pts`);
+  else if(d.type==='landmark') showToast(ICO.teal,`${d.label} — +${d.pts} pts!`);
+  nudge();
+}
+
+/* ─── TRAIL ──────────────────────────────────────────────── */
+function updateTrail(){
+  if(!map||S.collectedToday.length<2) return;
+  const coords=S.collectedToday.slice().reverse().map(c=>[c.lng,c.lat]);
+  if(coords.length<2) return;
+  try{
+    if(map.getSource('trail')) map.getSource('trail').setData({type:'Feature',geometry:{type:'LineString',coordinates:coords}});
+    else{
+      map.addSource('trail',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
+      map.addLayer({id:'trail',type:'line',source:'trail',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'#F0B429','line-width':3,'line-opacity':0.38,'line-dasharray':[2,5]}});
+    }
+  }catch(e){}
+}
+
+/* ─── GHOST TRAIL ────────────────────────────────────────── */
 function toggleGhost(){
   ghostOn=!ghostOn;
   document.getElementById('ghostIcon').style.stroke=ghostOn?'var(--gold)':'';
@@ -675,18 +766,18 @@ function toggleGhost(){
   else showToast(ICO.walk,'Ghost trail ON — your path is visible');
 }
 function addGhost(lat,lng){
-  if(!ghostOn||!map)return;
-  if(ghostPts.length>0&&hav(lat,lng,ghostPts[ghostPts.length-1]._lat,ghostPts[ghostPts.length-1]._lng)<8)return;
+  if(!ghostOn||!map) return;
+  if(ghostPts.length>0&&hav(lat,lng,ghostPts[ghostPts.length-1]._lat,ghostPts[ghostPts.length-1]._lng)<8) return;
   const el=document.createElement('div');el.style.cssText='width:8px;height:8px;border-radius:50%;background:rgba(240,180,41,0.35)';
   const m=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
   m._lat=lat;m._lng=lng;ghostPts.push(m);
-  if(ghostPts.length>80)ghostPts.shift().remove();
+  if(ghostPts.length>80) ghostPts.shift().remove();
 }
 
-/* GEO */
+/* ─── GEO ────────────────────────────────────────────────── */
 function startApp(){
   document.getElementById('perm').classList.add('gone');
-  if(!('geolocation'in navigator)){useDemo();return;}
+  if(!('geolocation' in navigator)){useDemo();return;}
   setGPS('searching','Searching…');
   navigator.geolocation.getCurrentPosition(
     pos=>{
@@ -699,37 +790,39 @@ function startApp(){
     {enableHighAccuracy:true,timeout:15000,maximumAge:0}
   );
 }
+
 function useDemo(){
   const lat=40.7549,lng=-73.9840;playerLat=lat;playerLng=lng;
-  setGPS('error','Demo · NYC');document.getElementById('locLbl').textContent='Demo Mode · NYC';
+  setGPS('error','Demo · NYC');
+  document.getElementById('locLbl').textContent='Demo Mode · NYC';
   initMap(lat,lng);showToast(ICO.warn,'Location denied — using NYC demo');askInit();
 }
+
 function startWatch(){
-  if(watchId!==null)return;
+  if(watchId!==null) return;
   watchId=navigator.geolocation.watchPosition(pos=>{
     const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
     setGPS('active',`±${Math.round(acc)}m`);
     playerLat=lat;playerLng=lng;
-    if(playerMarker)playerMarker.setLngLat([lng,lat]);
-    checkCollect(lat,lng);updateNearby(lat,lng);addGhost(lat,lng);
+    if(playerMarker) playerMarker.setLngLat([lng,lat]);
+    checkCollect(lat,lng);
+    updateNearby(lat,lng);
+    addGhost(lat,lng);
     if(!startWatch._geo||Date.now()-startWatch._geo>12000){startWatch._geo=Date.now();geoName(lat,lng);}
-    if(!startWatch._last)startWatch._last={lat,lng};
-    if(hav(lat,lng,startWatch._last.lat,startWatch._last.lng)>180){
-      startWatch._last={lat,lng};
-      setTimeout(()=>{roadCacheBuilt=false;buildRoadCache();spawnDots(lat,lng);spawnLM(lat,lng);},900);
-    }
   },()=>setGPS('error','GPS lost'),{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
 }
+
 function stopWatch(){if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}}
 function setGPS(s,t){document.getElementById('gpsBadge').className=`gps-badge ${s}`;document.getElementById('gpsLbl').textContent=t;}
+
 async function geoName(lat,lng){
   try{
     const r=await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=neighborhood,locality&access_token=${TOKEN}`);
-    const d=await r.json();if(d.features?.length)document.getElementById('locLbl').textContent=d.features[0].text;
+    const d=await r.json();if(d.features?.length) document.getElementById('locLbl').textContent=d.features[0].text;
   }catch(e){}
 }
 
-/* WALK TOGGLE */
+/* ─── WALK TOGGLE ────────────────────────────────────────── */
 function toggleWalk(){
   tracking=!tracking;
   const btn=document.getElementById('walkBtn');
@@ -742,9 +835,9 @@ function toggleWalk(){
     stopWatch();setGPS('searching','Paused');
   }
 }
-function centerMap(){if(map&&playerLng!==null)map.flyTo({center:[playerLng,playerLat],zoom:16,speed:1.2});}
+function centerMap(){if(map&&playerLng!==null) map.flyTo({center:[playerLng,playerLat],zoom:16,speed:1.2});}
 
-/* UI */
+/* ─── UI ─────────────────────────────────────────────────── */
 function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n);}
 function updateUI(){
   document.getElementById('scoreToday').textContent=fmt(S.todayDots);
@@ -753,23 +846,23 @@ function updateUI(){
   document.getElementById('tallyNum').textContent=S.todayDots;
   document.getElementById('streakVal').textContent=S.streak;
   document.getElementById('streakBig').textContent=S.streak;
-  const pin=document.getElementById('ppin');if(pin)pin.textContent=S.initials||'?';
+  const pin=document.getElementById('ppin');if(pin) pin.textContent=S.initials||'?';
   document.getElementById('avBtn').textContent=S.initials||'?';
   document.getElementById('chSub').textContent=`${S.todayDots} / 50 · resets midnight`;
   document.getElementById('chBar').style.width=Math.min(100,S.todayDots/50*100)+'%';
-  if(S.streak>0&&new Date().getHours()>=20)document.getElementById('streakSub').textContent='Streak at risk — walk tonight!';
+  if(S.streak>0&&new Date().getHours()>=20) document.getElementById('streakSub').textContent='Streak at risk — walk tonight!';
 }
+
 function updateNearby(lat,lng){
   const n=Object.values(DOTS).filter(d=>!S.eatenIds[d.id]&&hav(lat,lng,d.lat,d.lng)<80).length;
   document.getElementById('nearbyCount').textContent=n;
 }
 
-/* SHEET */
+/* ─── SHEET ──────────────────────────────────────────────── */
 let sheetOpen=true;
 function toggleSheet(){
   sheetOpen=!sheetOpen;
-  const sheet=document.getElementById('sheet');
-  sheet.classList.toggle('collapsed',!sheetOpen);
+  document.getElementById('sheet').classList.toggle('collapsed',!sheetOpen);
   const ww=document.getElementById('walkWrap'),fb=document.getElementById('fabs');
   if(sheetOpen){ww.style.bottom='';fb.style.bottom='';}
   else{ww.style.bottom='calc(var(--sb) + 66px)';fb.style.bottom='calc(var(--sb) + 66px)';}
@@ -779,11 +872,11 @@ function showPanel(id,el,cls){
   document.querySelectorAll('.panel').forEach(p=>p.classList.add('hidden'));
   document.getElementById('panel-'+id).classList.remove('hidden');
   if(el){document.querySelectorAll('.snav').forEach(s=>s.classList.remove('og','ot'));el.classList.add(cls);}
-  if(id==='recap')renderRecap();
-  if(id==='challenges')renderCh();
+  if(id==='recap') renderRecap();
+  if(id==='challenges') renderCh();
 }
 
-/* RENDER LB */
+/* ─── RENDER LEADERBOARD ─────────────────────────────────── */
 function renderLB(period){
   const fr=LB[period]||LB.day;
   const me={n:'You',loc:'Here',score:period==='day'?S.todayDots:period==='week'?S.weekDots:S.allDots,av:S.initials||'?',c:'#F0B429',you:true};
@@ -797,7 +890,7 @@ function renderLB(period){
 }
 function setLBTab(btn,period){btn.closest('.subtabs').querySelectorAll('.stab').forEach(s=>s.classList.remove('on'));btn.classList.add('on');renderLB(period);}
 
-/* RENDER TERRITORIES */
+/* ─── RENDER TERRITORIES ─────────────────────────────────── */
 function renderTerr(){
   const el=document.getElementById('terrList');el.innerHTML='';
   TERRS.forEach(t=>{
@@ -810,7 +903,7 @@ function renderTerr(){
   });
 }
 
-/* RENDER CHALLENGES */
+/* ─── RENDER CHALLENGES ──────────────────────────────────── */
 function renderCh(){
   const el=document.getElementById('chList');el.innerHTML='';
   const clk=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>`;
@@ -823,7 +916,7 @@ function renderCh(){
   });
 }
 
-/* RENDER RECAP */
+/* ─── RENDER RECAP ───────────────────────────────────────── */
 function renderRecap(){
   const wh=S.weekHistory||[];
   const wk=wh.reduce((a,b)=>a+b.dots,0)+S.todayDots;
@@ -834,11 +927,11 @@ function renderRecap(){
 function shareRecap(){
   const wh=S.weekHistory||[];const wk=wh.reduce((a,b)=>a+b.dots,0)+S.todayDots;
   const text=`My WagaWaga Walk week:\n${wk} dots · ${S.streak} day streak\nhttps://ethanforman1994.github.io/wagawaga`;
-  if(navigator.share)navigator.share({text});
+  if(navigator.share) navigator.share({text});
   else{navigator.clipboard?.writeText(text);showToast(ICO.walk,'Copied!');}
 }
 
-/* TOAST */
+/* ─── TOAST ──────────────────────────────────────────────── */
 let toastT;
 function showToast(icon,msg){
   const el=document.getElementById('toast');
@@ -854,9 +947,9 @@ const ICO={
   trophy:`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F0B429" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4a2 2 0 0 1-2-2V5h4"/><path d="M18 9h2a2 2 0 0 0 2-2V5h-4"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M6 5v4a6 6 0 0 0 12 0V5H6z"/></svg>`,
 };
 
-/* BURST FX */
+/* ─── BURST FX ───────────────────────────────────────────── */
 function burst(lng,lat,type){
-  if(!map)return;let sp;
+  if(!map) return;let sp;
   try{const p=map.project([lng,lat]);sp={x:p.x,y:p.y};}catch(e){return;}
   const color=type==='golden'?'#F0B429':'#0EB8A0';
   const pts=type==='golden'?10:type==='landmark'?30:1;
@@ -872,26 +965,34 @@ function burst(lng,lat,type){
   p2.textContent=`+${pts}`;bw.appendChild(p2);setTimeout(()=>p2.remove(),750);
 }
 
-/* NUDGE */
+/* ─── NUDGE ──────────────────────────────────────────────── */
 let lastNudge=0,nudgeIdx=0;
 const NUDGES=[[ICO.warn,'Jordan is 8 dots ahead — keep going!'],[ICO.fire,'You\'re on a roll!'],[ICO.trophy,'Personal best pace today!'],[ICO.warn,'Priya is challenging your territory!']];
 function nudge(){if(Date.now()-lastNudge<45000||Math.random()>.25)return;lastNudge=Date.now();const[ic,msg]=NUDGES[nudgeIdx%NUDGES.length];nudgeIdx++;showToast(ic,msg);}
 
-/* INITIALS */
+/* ─── INITIALS ───────────────────────────────────────────── */
 function askInit(){
-  if(S.initials&&S.initials!=='?')return;
+  if(S.initials&&S.initials!=='?') return;
   setTimeout(()=>{const v=prompt('Enter your initials to appear on the map (e.g. EF):');if(v){S.initials=v.toUpperCase().slice(0,2);save();updateUI();}},1500);
 }
 
-/* MIDNIGHT */
+/* ─── MIDNIGHT RESET ─────────────────────────────────────── */
 function scheduleMidnight(){
   const now=new Date();const ms=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now;
-  setTimeout(()=>{S=loadStore();updateUI();renderCh();renderRecap();refreshGL();showToast(ICO.walk,'Midnight — fresh dots are live!');scheduleMidnight();},ms+1000);
+  setTimeout(()=>{
+    S=loadStore();
+    // Reset eaten dots so the board refills
+    Object.values(DOTS).forEach(d=>{delete S.eatenIds[d.id];});
+    save();
+    refreshGL();updateUI();renderCh();renderRecap();
+    showToast(ICO.walk,'Midnight — fresh dots are live!');
+    scheduleMidnight();
+  },ms+1000);
 }
 
-/* BOOT */
+/* ─── BOOT ───────────────────────────────────────────────── */
 updateUI();scheduleMidnight();
-if(S.initials&&S.initials!=='?')document.getElementById('avBtn').textContent=S.initials;
+if(S.initials&&S.initials!=='?') document.getElementById('avBtn').textContent=S.initials;
 </script>
 </body>
 </html>

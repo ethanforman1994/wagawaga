@@ -15,7 +15,7 @@
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { getFirestore, doc, setDoc, getDoc, collection, query, orderBy, limit, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getFirestore, doc, setDoc, getDoc, getDocs, collection, query, where, orderBy, limit, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDb0zMOhz9EXmODWjLQPbtKIQ1agiXuwMA",
@@ -31,6 +31,8 @@ const fbApp = initializeApp(firebaseConfig);
 const auth  = getAuth(fbApp);
 const db    = getFirestore(fbApp);
 window._fbDb = db;
+// Expose Firestore query helpers for territory system
+window._fbFirestore = {getDocs,query,collection,where,orderBy,limit};
 
 let fbUid = null;
 let confirmationResult = null;
@@ -786,11 +788,10 @@ async function pushTerritoryDot(lat,lng,pts){
 
 // ── Load and render live territories ─────────────────────────
 async function loadTerritories(){
-  if(!window._fbDb) return;
+  if(!window._fbDb||!window._fbFirestore) return;
   const month=toDay().slice(0,7);
   try{
-    const {getDocs,query:fbQ,collection:fbCol,where,orderBy:fbOrd}=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
-    // Query territories for this month
+    const {getDocs,query:fbQ,collection:fbCol,where,orderBy:fbOrd} = window._fbFirestore;
     const snap=await getDocs(fbQ(fbCol(window._fbDb,'territories'),where('month','==',month),fbOrd('ownerDots','desc')));
     const rows=[];
     snap.forEach(d=>{
@@ -1300,18 +1301,19 @@ function requestLocation(){
   );
 }
 
-let mapFollowing = true; // auto-follow mode, disabled if user manually pans
-let walkStartDots = 0;   // dots at walk start, for summary
-let walkStartTime = null; // timestamp at walk start
-let walkGolden = 0;      // golden dots this walk
-let walkBonus = 0;       // bonus pts earned this walk
+let mapFollowing = true;
+let walkStartDots = 0;
+let walkStartTime = null;
+let walkGolden = 0;
+let walkBonus = 0;
+let isProgrammaticMove = false; // flag to distinguish auto-follow from user drag
 
 function startWatch(){
   if(watchId!==null) return;
   watchId=navigator.geolocation.watchPosition(pos=>{
-    const{latitude:lat,longitude:lng,accuracy:acc,heading}=pos.coords;
+    const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
 
-    // Ignore noisy readings with very poor accuracy (>60m in dense NYC is suspect)
+    // Ignore very noisy readings
     if(acc > 65) return;
 
     setGPS('active',`±${Math.round(acc)}m`);
@@ -1321,14 +1323,11 @@ function startWatch(){
     updateNearby(lat,lng);
     addGhost(lat,lng);
 
-    // Auto-follow: smoothly pan map to player position
+    // Auto-follow map
     if(mapFollowing && map){
-      map.easeTo({
-        center:[lng,lat],
-        duration:800,
-        easing:t=>t,         // linear — feels like live tracking
-        essential:true
-      });
+      isProgrammaticMove=true;
+      map.easeTo({center:[lng,lat],duration:600,essential:true});
+      setTimeout(()=>{ isProgrammaticMove=false; },700);
     }
 
     if(!startWatch._geo||Date.now()-startWatch._geo>12000){startWatch._geo=Date.now();geoName(lat,lng);}
@@ -1336,17 +1335,19 @@ function startWatch(){
     // Auto-rescan dots when walked 400m from last scan
     if(lastScanLat!==null && hav(lat,lng,lastScanLat,lastScanLng) > RESCAN_DIST_M){
       lastScanLat=lat;lastScanLng=lng;
-      map.once('idle',()=>buildRoadDots(lat,lng,true));
+      // Use timeout instead of idle event — more reliable on mobile
+      setTimeout(()=>buildRoadDots(lat,lng,true), 2000);
     }
   },()=>setGPS('error','GPS lost'),{
     enableHighAccuracy:true,
-    maximumAge:0,        // always fresh — no cached positions
+    maximumAge:0,
     timeout:10000
   });
 
-  // If user manually pans the map, pause auto-follow
-  // Tapping the center FAB re-enables it
-  map.on('dragstart',()=>{ mapFollowing=false; });
+  // Only pause auto-follow on genuine user touch/drag, not programmatic moves
+  map.on('dragstart',()=>{
+    if(!isProgrammaticMove) mapFollowing=false;
+  });
 }
 
 function stopWatch(){if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}}
@@ -1609,18 +1610,48 @@ function nudge(){if(Date.now()-lastNudge<45000||Math.random()>.25)return;lastNud
 function askInit(){ /* initials replaced by emoji tiers */ }
 
 /* ─── MIDNIGHT RESET ─────────────────────────────────────── */
+function doMidnightReset(){
+  // Save yesterday's score to week history
+  S.weekHistory = S.weekHistory || [];
+  S.weekHistory.unshift({date:S.day, dots:S.todayDots});
+  if(S.weekHistory.length>7) S.weekHistory.pop();
+  // Update streak
+  S.streak = S.walkedToday ? (S.streak||0)+1 : 0;
+  // Reset daily values
+  S.todayDots = 0;
+  S.eatenIds  = {};
+  S.collectedToday = [];
+  S.walkedToday = false;
+  S.day = toDay();
+  // Reset daily challenge
+  if(S.challenges) S.challenges.forEach(c=>{if(c.id==='c1'){c.prog=0;c.done=false;}});
+  save();
+  // Refresh dot types (golden positions change daily)
+  Object.values(DOTS).forEach(d=>{
+    if(d.type!=='landmark'){
+      const{type,pts}=dotType(d.id);
+      d.type=type;d.pts=pts;
+    }
+  });
+  refreshGL();updateUI();renderCh();renderRecap();
+  showToast(ICO.walk,'Midnight — fresh dots are live!');
+}
+
 function scheduleMidnight(){
-  const now=new Date();const ms=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now;
+  const now=new Date();
+  const ms=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now;
   setTimeout(()=>{
-    S=loadStore();
-    // Reset eaten dots so the board refills
-    Object.values(DOTS).forEach(d=>{delete S.eatenIds[d.id];});
-    save();
-    refreshGL();updateUI();renderCh();renderRecap();
-    showToast(ICO.walk,'Midnight — fresh dots are live!');
+    doMidnightReset();
     scheduleMidnight();
   },ms+1000);
 }
+
+// Also check for day change when app comes back to foreground
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible' && S.day !== toDay()){
+    doMidnightReset();
+  }
+});
 
 /* ─── BOOT ───────────────────────────────────────────────── */
 updateUI();scheduleMidnight();

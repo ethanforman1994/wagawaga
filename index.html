@@ -30,6 +30,7 @@ const firebaseConfig = {
 const fbApp = initializeApp(firebaseConfig);
 const auth  = getAuth(fbApp);
 const db    = getFirestore(fbApp);
+window._fbDb = db;
 
 let fbUid = null;
 let confirmationResult = null;
@@ -123,7 +124,17 @@ async function loadCloudProfile(uid){
     const snap = await getDoc(doc(db,'users',uid));
     if(snap.exists()){
       const d = snap.data();
-      if(d.todayDate === window._toDay()) window._S.todayDots = d.todayDots||window._S.todayDots;
+      const isToday = d.todayDate === window._toDay();
+      if(isToday){
+        window._S.todayDots = d.todayDots || window._S.todayDots;
+        // Restore eaten dot IDs from cloud so dots stay eaten after cache clear
+        if(d.eatenIds && typeof d.eatenIds === 'object'){
+          window._S.eatenIds = Object.assign({}, d.eatenIds, window._S.eatenIds);
+        }
+      } else {
+        // New day — clear eaten IDs
+        window._S.eatenIds = {};
+      }
       window._S.weekDots    = d.weekDots    || window._S.weekDots;
       window._S.allDots     = d.allDots     || window._S.allDots;
       window._S.streak      = d.streak      || window._S.streak;
@@ -154,6 +165,8 @@ window._pushCloud = async function(){
   if(!fbUid) return;
   const S = window._S;
   try{
+    // Only push eatenIds if they're from today — keeps doc size manageable
+    const eatenToday = S.day === window._toDay() ? S.eatenIds : {};
     await setDoc(doc(db,'users',fbUid),{
       displayName : S.displayName || 'Anonymous',
       emoji       : window._getEmoji().emoji,
@@ -162,6 +175,7 @@ window._pushCloud = async function(){
       weekDots    : S.weekDots,
       allDots     : S.allDots,
       streak      : S.streak,
+      eatenIds    : eatenToday,
       updatedAt   : serverTimestamp(),
     },{merge:true});
   }catch(e){ console.warn('pushCloud error',e); }
@@ -169,7 +183,7 @@ window._pushCloud = async function(){
 
 // ── Live leaderboard listener ────────────────────────────────
 function subscribeLeaderboard(){
-  const q = query(collection(db,'users'), orderBy('todayDots','desc'), limit(20));
+  const q = query(collection(db,'users'), orderBy('todayDots','desc'), limit(10));
   onSnapshot(q, snap=>{
     const rows=[];
     snap.forEach(d=>{
@@ -292,9 +306,34 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 /* TODAY */
 .tally{padding:10px 16px 20px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;flex:1;scrollbar-width:none}
 .tally::-webkit-scrollbar{display:none}
-.tally-top{display:flex;align-items:baseline;gap:8px}
+.tally-top{display:flex;align-items:center;gap:16px}
 .tally-num{font-size:40px;font-weight:900;letter-spacing:-2px;color:var(--gold);line-height:1}
 .tally-lbl{font-size:12px;color:var(--text2)}
+
+/* GOAL RING */
+.goal-ring-wrap{position:relative;width:72px;height:72px;flex-shrink:0}
+.goal-ring-wrap svg{transform:rotate(-90deg)}
+.goal-ring-bg{fill:none;stroke:rgba(255,255,255,0.06);stroke-width:5}
+.goal-ring-fill{fill:none;stroke:var(--gold);stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset .6s cubic-bezier(.4,0,.2,1)}
+.goal-ring-fill.done{stroke:var(--green)}
+.goal-ring-label{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.goal-ring-pct{font-size:13px;font-weight:800;color:var(--gold)}
+.goal-ring-pct.done{color:var(--green)}
+.goal-ring-sub{font-size:8px;color:var(--text3);margin-top:1px}
+
+/* WALK SUMMARY MODAL */
+.walk-summary{position:absolute;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .3s}
+.walk-summary.show{opacity:1;pointer-events:all}
+.ws-card{background:var(--slate-2);border:1px solid var(--border2);border-radius:28px 28px 0 0;padding:28px 24px 40px;width:100%;max-width:430px;transform:translateY(40px);transition:transform .35s cubic-bezier(.32,.72,0,1)}
+.walk-summary.show .ws-card{transform:translateY(0)}
+.ws-title{font-size:20px;font-weight:900;letter-spacing:-.5px;margin-bottom:4px}
+.ws-sub{font-size:12px;color:var(--text2);margin-bottom:20px}
+.ws-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
+.ws-stat{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:16px;padding:14px}
+.ws-stat-val{font-size:26px;font-weight:900;color:var(--gold);letter-spacing:-1px;line-height:1}
+.ws-stat-lbl{font-size:10px;color:var(--text2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+.ws-stat.highlight{border-color:var(--gold-border);background:var(--gold-dim)}
+.ws-close{width:100%;padding:14px;border-radius:14px;border:none;background:var(--gold);color:#1a1200;font-family:'Outfit',sans-serif;font-weight:700;font-size:15px;cursor:pointer;-webkit-appearance:none}
 .scard{display:flex;align-items:center;gap:10px;background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:10px 13px}
 .scard-icon{width:34px;height:34px;border-radius:10px;background:var(--gold-dim);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .scard-info{flex:1}
@@ -552,6 +591,33 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 
   <div class="toast" id="toast"><div class="toast-icon" id="tIcon"></div><div id="tMsg"></div></div>
 
+  <!-- Walk Summary Modal -->
+  <div class="walk-summary" id="walkSummary">
+    <div class="ws-card">
+      <div class="ws-title">Walk Complete! 🎉</div>
+      <div class="ws-sub" id="wsDuration">Great effort today</div>
+      <div class="ws-stats">
+        <div class="ws-stat highlight">
+          <div class="ws-stat-val" id="wsDots">0</div>
+          <div class="ws-stat-lbl">Dots collected</div>
+        </div>
+        <div class="ws-stat">
+          <div class="ws-stat-val" id="wsGolden">0</div>
+          <div class="ws-stat-lbl">Golden dots</div>
+        </div>
+        <div class="ws-stat">
+          <div class="ws-stat-val" id="wsStreak">0</div>
+          <div class="ws-stat-lbl">Day streak 🔥</div>
+        </div>
+        <div class="ws-stat">
+          <div class="ws-stat-val" id="wsBonus">0</div>
+          <div class="ws-stat-lbl">Bonus pts earned</div>
+        </div>
+      </div>
+      <button class="ws-close" onclick="closeWalkSummary()">Done</button>
+    </div>
+  </div>
+
   <div class="sheet" id="sheet">
     <div class="sheet-handle" onclick="toggleSheet()">
       <div class="handle-bar"></div>
@@ -579,7 +645,27 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
     <div class="sheet-body">
       <div class="panel" id="panel-today">
         <div class="tally">
-          <div class="tally-top"><div class="tally-num" id="tallyNum">0</div><div class="tally-lbl">dots collected today</div></div>
+          <div class="tally-top">
+            <!-- Goal ring -->
+            <div class="goal-ring-wrap">
+              <svg width="72" height="72" viewBox="0 0 72 72">
+                <circle class="goal-ring-bg" cx="36" cy="36" r="30"/>
+                <circle class="goal-ring-fill" id="goalRingFill" cx="36" cy="36" r="30"
+                  stroke-dasharray="188.5" stroke-dashoffset="188.5"/>
+              </svg>
+              <div class="goal-ring-label">
+                <div class="goal-ring-pct" id="goalRingPct">0%</div>
+                <div class="goal-ring-sub">of 50</div>
+              </div>
+            </div>
+            <div>
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <div class="tally-num" id="tallyNum">0</div>
+                <div class="tally-lbl">dots today</div>
+              </div>
+              <div style="font-size:11px;color:var(--text2);margin-top:4px" id="goalMsg">Keep walking!</div>
+            </div>
+          </div>
           <div class="scard">
             <div class="scard-icon"><svg width="16" height="18" viewBox="0 0 13 16" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round"><path d="M6.5 14.5c2.5 0 4.5-1.8 4.5-4.5 0-1.8-1-3-2-4-.3 1.2-1 2-1.8 2.2C7.8 6.5 7 4.5 5.5 3c0 2-1.5 3.2-2 4.5-.3.8-.5 1.6-.5 2.5 0 2.7 2 4.5 3.5 4.5z"/></svg></div>
             <div class="scard-info"><div class="scard-title">Day Streak</div><div class="scard-sub" id="streakSub">Dots reset at midnight · keep moving</div></div>
@@ -662,14 +748,86 @@ const LB={
   week:[{n:'Priya M.',loc:'Brooklyn Hts',score:2105,av:'PM',c:'#2C3E50'},{n:'Jordan K.',loc:'Upper West Side',score:1980,av:'JK',c:'#3A4A6B'},{n:'Sam W.',loc:'Williamsburg',score:1654,av:'SW',c:'#1A2E2C'},{n:'Devon R.',loc:'Astoria',score:1320,av:'DR',c:'#253040'},{n:'Taylor B.',loc:'Park Slope',score:998,av:'TB',c:'#222A3A'}],
   month:[{n:'Sam W.',loc:'Williamsburg',score:8820,av:'SW',c:'#1A2E2C'},{n:'Jordan K.',loc:'Upper West Side',score:8401,av:'JK',c:'#3A4A6B'},{n:'Priya M.',loc:'Brooklyn Hts',score:7650,av:'PM',c:'#2C3E50'},{n:'Devon R.',loc:'Astoria',score:6200,av:'DR',c:'#253040'},{n:'Taylor B.',loc:'Park Slope',score:4300,av:'TB',c:'#222A3A'}],
 };
-const TERRS=[
-  {name:'Midtown East',owner:'You',ok:'gold',pct:74,status:'owned',cont:false},
-  {name:'Upper West Side',owner:'Jordan',ok:'slate',pct:61,status:'enemy',cont:false},
-  {name:'Chelsea',owner:'You',ok:'gold',pct:52,status:'owned',cont:true},
-  {name:'Central Park',owner:'–',ok:'teal',pct:38,status:'neutral',cont:true},
-  {name:"Hell's Kitchen",owner:'You',ok:'gold',pct:81,status:'owned',cont:false},
-  {name:'Gramercy',owner:'Sam',ok:'teal',pct:55,status:'enemy',cont:false},
-];
+// Territory data will be fetched live — no hardcoded mock
+const TERRS=[];
+
+// ── Fetch neighborhood name from Mapbox for a lat/lng ────────
+async function fetchNeighborhood(lat,lng){
+  try{
+    const r=await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=neighborhood&access_token=${TOKEN}`);
+    const d=await r.json();
+    return d.features?.[0]?.text||null;
+  }catch(e){return null;}
+}
+
+// ── Push dot collection to territory score in Firebase ───────
+async function pushTerritoryDot(lat,lng,pts){
+  if(!window._fbUid||!lat||!lng) return;
+  const hood=await fetchNeighborhood(lat,lng);
+  if(!hood) return;
+  const month=toDay().slice(0,7); // e.g. "2025-04"
+  const key=`${hood}__${month}`.replace(/[^a-zA-Z0-9_]/g,'_');
+  try{
+    const ref=doc(window._fbDb,'territories',key);
+    const snap=await getDoc(ref);
+    const existing=snap.exists()?snap.data():{};
+    const userDots=(existing.users?.[window._fbUid]||0)+pts;
+    const users={...(existing.users||{}),[window._fbUid]:userDots};
+    // Find owner = user with most dots
+    let ownerUid=window._fbUid,ownerDots=0;
+    Object.entries(users).forEach(([uid,d])=>{if(d>ownerDots){ownerDots=d;ownerUid=uid;}});
+    await setDoc(ref,{
+      name:hood,month,users,
+      ownerUid,ownerDots,
+      updatedAt:serverTimestamp()
+    },{merge:true});
+  }catch(e){console.warn('territory push error',e);}
+}
+
+// ── Load and render live territories ─────────────────────────
+async function loadTerritories(){
+  if(!window._fbDb) return;
+  const month=toDay().slice(0,7);
+  try{
+    const {getDocs,query:fbQ,collection:fbCol,where,orderBy:fbOrd}=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    // Query territories for this month
+    const snap=await getDocs(fbQ(fbCol(window._fbDb,'territories'),where('month','==',month),fbOrd('ownerDots','desc')));
+    const rows=[];
+    snap.forEach(d=>{
+      const data=d.data();
+      const myDots=data.users?.[window._fbUid]||0;
+      const totalDots=Object.values(data.users||{}).reduce((a,b)=>a+b,0);
+      const pct=totalDots>0?Math.round(myDots/totalDots*100):0;
+      const isOwner=data.ownerUid===window._fbUid;
+      rows.push({name:data.name,ownerUid:data.ownerUid,ownerDots:data.ownerDots,myDots,pct,isOwner,users:data.users||{}});
+    });
+    renderTerrLive(rows);
+  }catch(e){console.warn('loadTerritories error',e);}
+}
+
+function renderTerrLive(rows){
+  const el=document.getElementById('terrList');el.innerHTML='';
+  if(!rows.length){
+    el.innerHTML='<div style="padding:20px;color:var(--text2);font-size:13px;text-align:center">Walk to claim territories!<br><span style="font-size:11px;opacity:.6">Dots you collect in each neighborhood<br>count toward owning it this month.</span></div>';
+    return;
+  }
+  rows.forEach(t=>{
+    const owned=t.isOwner;
+    const barC=owned?'var(--gold)':'var(--teal)';
+    const d=document.createElement('div');
+    d.className=`terr-card ${owned?'owned':''}`;
+    d.innerHTML=`
+      ${owned?'<div class="terr-badge yours">Yours</div>':''}
+      <div class="terr-name">${t.name}</div>
+      <div class="terr-owner">
+        <div style="width:6px;height:6px;border-radius:50%;background:${barC};flex-shrink:0"></div>
+        ${owned?'You lead':'Contested'}
+      </div>
+      <div class="terr-bar-bg"><div class="terr-bar" style="width:${Math.min(100,t.pct)}%;background:${barC}"></div></div>
+      <div class="terr-pct">${t.myDots} your dots · ${t.ownerDots} leader</div>`;
+    el.appendChild(d);
+  });
+}
 const CHS=[
   {id:'c1',icon:'bolt',title:'Daily Grind',desc:'Collect 50 dots today',total:50,timer:'Resets midnight',reward:300,active:true},
   {id:'c2',icon:'sun',title:'Early Bird',desc:'30 dots before 8am, 3 days running',total:3,timer:'Ongoing',reward:300,active:false},
@@ -688,10 +846,7 @@ const LANDMARKS=[
   {name:'High Line',lat:40.7479,lng:-74.0048,pts:30},{name:'Washington Sq',lat:40.7308,lng:-73.9973,pts:30},
   {name:'Rockefeller Ctr',lat:40.7587,lng:-73.9787,pts:35},{name:'Grand Central',lat:40.7527,lng:-73.9772,pts:40},
 ];
-const FRIENDS_CFG=[
-  {n:'Jordan K.',i:'JK',c:'#3A4A6B',spd:0.000035},{n:'Priya M.',i:'PM',c:'#2C3E50',spd:0.000028},
-  {n:'Sam W.',i:'SW',c:'#0EB8A0',spd:0.000042},{n:'Devon R.',i:'DR',c:'#253040',spd:0.000031},
-];
+const FRIENDS_CFG=[];
 
 /* ─── EMOJI TIERS ────────────────────────────────────────────
    Assigned by streak. Each tier unlocks at a streak milestone.
@@ -747,7 +902,10 @@ function dotId(lat,lng){
 }
 
 function dotType(id){
-  let h=0;for(let i=0;i<id.length;i++)h=(Math.imul(31,h)+id.charCodeAt(i))|0;
+  // Mix the dot ID with today's date so golden positions shift each day
+  const salt = toDay().replace(/-/g,'');
+  const key = id + salt;
+  let h=0;for(let i=0;i<key.length;i++)h=(Math.imul(31,h)+key.charCodeAt(i))|0;
   return Math.abs(h)%100<GOLD_PCT?{type:'golden',pts:10}:{type:'regular',pts:1};
 }
 
@@ -984,9 +1142,6 @@ function initMap(lat,lng){
     el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${getEmoji().emoji}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 
-    // Friends
-    spawnFriends(lat,lng);
-
     // Wait for idle (all tiles rendered) then generate dots once
     map.once('idle', ()=>{
       buildRoadDots(lat,lng);
@@ -1036,9 +1191,15 @@ function collect(d){
   S.collectedToday.unshift({pts:d.pts,lat:d.lat,lng:d.lng,type:d.type,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
   if(S.collectedToday.length>200) S.collectedToday.pop();
   const c1=S.challenges?.find(c=>c.id==='c1');
-  if(c1&&!c1.done){c1.prog=S.todayDots;if(c1.prog>=c1.total){c1.done=true;showToast(ICO.star,'Challenge complete! +300 pts');}}
-  if(d.type==='golden'){const c4=S.challenges?.find(c=>c.id==='c4');if(c4&&!c4.done)c4.prog++;}
+  if(c1&&!c1.done){c1.prog=S.todayDots;if(c1.prog>=c1.total){c1.done=true;S.todayDots+=300;S.weekDots+=300;S.allDots+=300;walkBonus+=300;showToast(ICO.star,'Challenge complete! +300 pts');}}
+  if(d.type==='golden'){
+    if(tracking) walkGolden++;
+    const c4=S.challenges?.find(c=>c.id==='c4');
+    if(c4&&!c4.done){c4.prog++;if(c4.prog>=c4.total){c4.done=true;S.todayDots+=1500;S.weekDots+=1500;S.allDots+=1500;walkBonus+=1500;showToast(ICO.star,'Golden Hunter complete! +1500 pts');}}
+  }
   save();refreshGL();updateUI();renderCh();updateTrail();
+  // Track dot in territory system
+  pushTerritoryDot(d.lat,d.lng,d.pts);
   burst(d.lng,d.lat,d.type);
   if(d.type==='golden') showToast(ICO.star,`Golden dot! +${d.pts} pts`);
   else if(d.type==='landmark') showToast(ICO.teal,`${d.label} — +${d.pts} pts!`);
@@ -1122,6 +1283,10 @@ function requestLocation(){
 }
 
 let mapFollowing = true; // auto-follow mode, disabled if user manually pans
+let walkStartDots = 0;   // dots at walk start, for summary
+let walkStartTime = null; // timestamp at walk start
+let walkGolden = 0;      // golden dots this walk
+let walkBonus = 0;       // bonus pts earned this walk
 
 function startWatch(){
   if(watchId!==null) return;
@@ -1181,13 +1346,42 @@ function toggleWalk(){
   tracking=!tracking;
   const btn=document.getElementById('walkBtn');
   if(tracking){
-    btn.classList.add('active');document.getElementById('walkLbl').textContent='Stop Walk';
-    startWatch();centerMap();if(!S.streak)S.streak=1;save();updateUI();
+    btn.classList.add('active');
+    document.getElementById('walkLbl').textContent='Stop Walk';
+    startWatch();centerMap();
+    if(!S.streak)S.streak=1;
+    // Record walk start state for summary
+    walkStartDots=S.todayDots;
+    walkStartTime=Date.now();
+    walkGolden=0;
+    walkBonus=0;
+    save();updateUI();
     showToast(ICO.walk,'Walk started — collect everything!');
   }else{
-    btn.classList.remove('active');document.getElementById('walkLbl').textContent='Start Walk';
+    btn.classList.remove('active');
+    document.getElementById('walkLbl').textContent='Start Walk';
     stopWatch();setGPS('searching','Paused');
+    showWalkSummary();
   }
+}
+
+function showWalkSummary(){
+  const dotsThisWalk = S.todayDots - walkStartDots;
+  if(dotsThisWalk <= 0){ return; } // nothing collected, skip summary
+  const elapsed = Date.now() - walkStartTime;
+  const mins = Math.floor(elapsed/60000);
+  const secs = Math.floor((elapsed%60000)/1000);
+  const durStr = mins>0 ? `${mins}m ${secs}s walk` : `${secs}s walk`;
+  document.getElementById('wsDots').textContent    = dotsThisWalk;
+  document.getElementById('wsGolden').textContent  = walkGolden;
+  document.getElementById('wsStreak').textContent  = S.streak;
+  document.getElementById('wsBonus').textContent   = walkBonus;
+  document.getElementById('wsDuration').textContent= durStr;
+  document.getElementById('walkSummary').classList.add('show');
+}
+
+function closeWalkSummary(){
+  document.getElementById('walkSummary').classList.remove('show');
 }
 function centerMap(){
   if(map&&playerLng!==null){
@@ -1205,7 +1399,31 @@ function updateUI(){
   document.getElementById('tallyNum').textContent=S.todayDots;
   document.getElementById('streakVal').textContent=S.streak;
   document.getElementById('streakBig').textContent=S.streak;
-  // Check for tier upgrade before updating pin
+
+  // Goal ring
+  const GOAL=50;
+  const pct=Math.min(1,S.todayDots/GOAL);
+  const circ=188.5;
+  const fill=document.getElementById('goalRingFill');
+  const pctEl=document.getElementById('goalRingPct');
+  if(fill){
+    fill.style.strokeDashoffset=circ-(circ*pct);
+    fill.classList.toggle('done',pct>=1);
+  }
+  if(pctEl){
+    pctEl.textContent=Math.round(pct*100)+'%';
+    pctEl.classList.toggle('done',pct>=1);
+  }
+  const goalMsg=document.getElementById('goalMsg');
+  if(goalMsg){
+    if(pct>=1) goalMsg.textContent='Daily goal reached! 🎉';
+    else if(pct>=0.75) goalMsg.textContent=`${GOAL-S.todayDots} dots to go!`;
+    else if(pct>=0.5) goalMsg.textContent='Halfway there — keep going!';
+    else if(S.todayDots>0) goalMsg.textContent='Great start — keep moving!';
+    else goalMsg.textContent='Start walking to collect dots!';
+  }
+
+  // Check for tier upgrade
   const newTier = getEmoji();
   if(S._lastTier && S._lastTier !== newTier.label){
     showToast(ICO.star,`You're now a ${newTier.emoji} ${newTier.label}!`);
@@ -1238,6 +1456,7 @@ function showPanel(id,el,cls){
   if(el){document.querySelectorAll('.snav').forEach(s=>s.classList.remove('og','ot'));el.classList.add(cls);}
   if(id==='recap') renderRecap();
   if(id==='challenges') renderCh();
+  if(id==='territories') renderTerr();
 }
 
 /* ─── RENDER LEADERBOARD ─────────────────────────────────── */
@@ -1296,15 +1515,9 @@ function setLBTab(btn,period){btn.closest('.subtabs').querySelectorAll('.stab').
 
 /* ─── RENDER TERRITORIES ─────────────────────────────────── */
 function renderTerr(){
-  const el=document.getElementById('terrList');el.innerHTML='';
-  TERRS.forEach(t=>{
-    const owned=t.status==='owned';
-    const barC=owned?'var(--gold)':t.ok==='teal'?'var(--teal)':'rgba(255,255,255,.2)';
-    const dotC=owned?'var(--gold)':t.ok==='teal'?'var(--teal)':'rgba(255,255,255,.25)';
-    const d=document.createElement('div');d.className=`terr-card ${owned?'owned':''} ${t.cont?'contested':''}`;
-    d.innerHTML=`${owned?'<div class="terr-badge yours">Yours</div>':t.cont?'<div class="terr-badge cont">Contested</div>':''}<div class="terr-name">${t.name}</div><div class="terr-owner"><div style="width:6px;height:6px;border-radius:50%;background:${dotC};flex-shrink:0"></div>${t.owner}</div><div class="terr-bar-bg"><div class="terr-bar" style="width:${t.pct}%;background:${barC}"></div></div><div class="terr-pct">${t.pct}% coverage</div>`;
-    el.appendChild(d);
-  });
+  const el=document.getElementById('terrList');
+  el.innerHTML='<div style="padding:20px;color:var(--text2);font-size:13px;text-align:center">Loading territories…</div>';
+  loadTerritories();
 }
 
 /* ─── RENDER CHALLENGES ──────────────────────────────────── */

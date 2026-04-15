@@ -841,10 +841,15 @@ const CH_SVG={
   star:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
 };
 const LANDMARKS=[
-  {name:'Empire State',lat:40.7484,lng:-73.9857,pts:50},{name:'Central Park',lat:40.7851,lng:-73.9683,pts:40},
-  {name:'Times Square',lat:40.7580,lng:-73.9855,pts:35},{name:'Brooklyn Bridge',lat:40.7061,lng:-73.9969,pts:45},
-  {name:'High Line',lat:40.7479,lng:-74.0048,pts:30},{name:'Washington Sq',lat:40.7308,lng:-73.9973,pts:30},
-  {name:'Rockefeller Ctr',lat:40.7587,lng:-73.9787,pts:35},{name:'Grand Central',lat:40.7527,lng:-73.9772,pts:40},
+  {name:'Empire State',lat:40.7484,lng:-73.9857,pts:50,emoji:null},
+  {name:'Central Park',lat:40.7851,lng:-73.9683,pts:40,emoji:null},
+  {name:'Times Square',lat:40.7580,lng:-73.9855,pts:35,emoji:null},
+  {name:'Brooklyn Bridge',lat:40.7061,lng:-73.9969,pts:45,emoji:null},
+  {name:'High Line',lat:40.7479,lng:-74.0048,pts:30,emoji:null},
+  {name:'Washington Sq',lat:40.7308,lng:-73.9973,pts:30,emoji:null},
+  {name:'Rockefeller Ctr',lat:40.7587,lng:-73.9787,pts:35,emoji:null},
+  {name:'Grand Central',lat:40.7527,lng:-73.9772,pts:40,emoji:null},
+  {name:'Friday at Formans',lat:40.7397,lng:-73.9942,pts:1,emoji:'👨‍🍳'},
 ];
 const FRIENDS_CFG=[];
 
@@ -1015,7 +1020,7 @@ function buildRoadDots(centerLat, centerLng, silent=false){
   LANDMARKS.forEach((lm,i)=>{
     if(hav(centerLat,centerLng,lm.lat,lm.lng)>SPAWN_R_M) return;
     const id=`lm_${i}`;
-    if(!DOTS[id]) DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name};
+    if(!DOTS[id]) DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name,emoji:lm.emoji||null};
     added++;
   });
 
@@ -1062,7 +1067,7 @@ function buildGJ(){
   return{type:'FeatureCollection',features:Object.values(DOTS).map(d=>({
     type:'Feature',
     geometry:{type:'Point',coordinates:[d.lng,d.lat]},
-    properties:{id:d.id,type:d.type,pts:d.pts,label:d.label||'',eaten:!!S.eatenIds[d.id]},
+    properties:{id:d.id,type:d.type,pts:d.pts,label:d.label||'',emoji:d.emoji||'',eaten:!!S.eatenIds[d.id]},
   }))};
 }
 
@@ -1116,6 +1121,16 @@ function pushGL(){
       'circle-opacity':1,
       'circle-stroke-width':3,
       'circle-stroke-color':'#0EB8A0'
+    }});
+
+  // Emoji label for custom landmarks
+  map.addLayer({id:'dots-lm-emoji',type:'symbol',source:'dots',
+    filter:['all',['==',['get','type'],'landmark'],['==',['get','eaten'],false],['!=',['get','emoji'],'']],
+    layout:{
+      'text-field':['get','emoji'],
+      'text-size':['interpolate',['linear'],['zoom'],13,10,16,16,19,22],
+      'text-allow-overlap':true,
+      'text-ignore-placement':true,
     }});
 }
 
@@ -1202,7 +1217,10 @@ function collect(d){
   pushTerritoryDot(d.lat,d.lng,d.pts);
   burst(d.lng,d.lat,d.type);
   if(d.type==='golden') showToast(ICO.star,`Golden dot! +${d.pts} pts`);
-  else if(d.type==='landmark') showToast(ICO.teal,`${d.label} — +${d.pts} pts!`);
+  else if(d.type==='landmark'){
+    const ico = d.emoji ? `<span style="font-size:15px">${d.emoji}</span>` : ICO.teal;
+    showToast(ico,`${d.label} — +${d.pts} pts!`);
+  }
   nudge();
 }
 

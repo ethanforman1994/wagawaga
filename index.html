@@ -715,10 +715,29 @@ const SK = 'wagawaga';
 const toDay = () => new Date().toISOString().split('T')[0];
 
 function blank(){
-  return{day:toDay(),todayDots:0,weekDots:0,allDots:0,streak:0,walkedToday:false,
+  return{
+    day:toDay(),todayDots:0,weekDots:0,allDots:0,streak:0,walkedToday:false,
     eatenIds:{},collectedToday:[],weekHistory:[],initials:'?',
-    challenges:[{id:'c1',prog:0,total:50,done:false},{id:'c2',prog:0,total:3,done:false},
-                {id:'c3',prog:0,total:5,done:false},{id:'c4',prog:0,total:10,done:false}]};
+    neighborhoodsThisWeek:[],  // for Explorer challenge
+    daysWalkedThisWeek:0,       // for Consistent challenge
+    speedRunStart:null,         // for Speed Run challenge
+    speedRunDots:0,             // dots collected during speed run window
+    challenges:[
+      {id:'c1',    prog:0,total:50,   done:false},
+      {id:'c_eb',  prog:0,total:20,   done:false},
+      {id:'c_no',  prog:0,total:20,   done:false},
+      {id:'c_sr',  prog:0,total:10,   done:false},
+      {id:'c3',    prog:0,total:3,    done:false},
+      {id:'c_con', prog:0,total:7,    done:false},
+      {id:'c_td',  prog:0,total:1,    done:false},
+      {id:'c4',    prog:0,total:20,   done:false},
+      {id:'c_leg', prog:0,total:1000, done:false},
+      {id:'c_tk',  prog:0,total:3,    done:false},
+      {id:'c_fs',  prog:0,total:1,    done:false},
+      {id:'c_100', prog:0,total:100,  done:false},
+      {id:'c_fire',prog:0,total:7,    done:false},
+    ]
+  };
 }
 
 function loadStore(){
@@ -779,6 +798,18 @@ async function pushTerritoryDot(lat,lng,pts){
   if(!window._fbUid||!window._fbDb||!window._fbFirestore||!lat||!lng) return;
   const hood=await fetchNeighborhood(lat,lng);
   if(!hood) return;
+
+  // Explorer challenge — track unique neighborhoods this week
+  const c3=S.challenges?.find(c=>c.id==='c3');
+  if(c3&&!c3.done){
+    S.neighborhoodsThisWeek=S.neighborhoodsThisWeek||[];
+    if(!S.neighborhoodsThisWeek.includes(hood)){
+      S.neighborhoodsThisWeek.push(hood);
+      c3.prog=S.neighborhoodsThisWeek.length;
+      if(c3.prog>=c3.total) awardChallenge('c3',500,'Explorer complete!');
+      showToast(ICO.teal,`New neighborhood: ${hood}!`);
+    }
+  }
   const {doc,setDoc,getDoc,serverTimestamp}=window._fbFirestore;
   const month=toDay().slice(0,7);
   const key=`${hood}__${month}`.replace(/[^a-zA-Z0-9_]/g,'_');
@@ -847,16 +878,39 @@ function renderTerrLive(rows){
   });
 }
 const CHS=[
-  {id:'c1',icon:'bolt',title:'Daily Grind',desc:'Collect 50 dots today',total:50,timer:'Resets midnight',reward:300,active:true},
-  {id:'c2',icon:'sun',title:'Early Bird',desc:'30 dots before 8am, 3 days running',total:3,timer:'Ongoing',reward:300,active:false},
-  {id:'c3',icon:'compass',title:'Explorer',desc:'Walk 5 neighborhoods this week',total:5,timer:'This week',reward:750,active:false},
-  {id:'c4',icon:'star',title:'Golden Hunter',desc:'Collect 10 golden dots this month',total:10,timer:'This month',reward:1500,active:false},
+  // ── Daily (resets midnight) ──────────────────────────────
+  {id:'c1',  icon:'bolt',    title:'Daily Grind',    desc:'Collect 50 dots today',                    total:50,   timer:'Resets midnight', reward:300,  period:'daily',  active:true},
+  {id:'c_eb',icon:'sun',     title:'Early Bird',     desc:'Collect 20 dots before 9am',               total:20,   timer:'Resets midnight', reward:200,  period:'daily',  active:true},
+  {id:'c_no',icon:'moon',    title:'Night Owl',      desc:'Collect 20 dots after 8pm',                total:20,   timer:'Resets midnight', reward:200,  period:'daily',  active:true},
+  {id:'c_sr',icon:'zap',     title:'Speed Run',      desc:'Collect 10 dots in under 5 minutes',       total:10,   timer:'Resets midnight', reward:150,  period:'daily',  active:true},
+  // ── Weekly (resets Monday) ───────────────────────────────
+  {id:'c3',  icon:'compass', title:'Explorer',       desc:'Walk in 3 different neighborhoods',         total:3,    timer:'This week',       reward:500,  period:'weekly', active:true},
+  {id:'c_con',icon:'calendar',title:'Consistent',    desc:'Walk at least once every day this week',   total:7,    timer:'This week',       reward:1000, period:'weekly', active:true},
+  {id:'c_td',icon:'trophy',  title:'Top Dog',        desc:'Finish #1 on the leaderboard any day',      total:1,    timer:'This week',       reward:750,  period:'weekly', active:true},
+  // ── Monthly ──────────────────────────────────────────────
+  {id:'c4',  icon:'star',    title:'Golden Hunter',  desc:'Collect 20 golden dots this month',        total:20,   timer:'This month',      reward:1500, period:'monthly',active:true},
+  {id:'c_leg',icon:'crown',  title:'Legend',         desc:'Collect 1000 dots this month',             total:1000, timer:'This month',      reward:2000, period:'monthly',active:true},
+  {id:'c_tk', icon:'map',    title:'Territory King', desc:'Own 3 territories simultaneously',          total:3,    timer:'This month',      reward:2000, period:'monthly',active:true},
+  // ── Milestones (one time) ────────────────────────────────
+  {id:'c_fs', icon:'flag',   title:'First Steps',    desc:'Collect your very first dot',               total:1,    timer:'One time',        reward:50,   period:'milestone',active:true},
+  {id:'c_100',icon:'medal',  title:'Century',        desc:'Collect 100 dots total',                    total:100,  timer:'One time',        reward:300,  period:'milestone',active:true},
+  {id:'c_fire',icon:'fire',  title:'On Fire',        desc:'Reach a 7 day streak',                      total:7,    timer:'One time',        reward:500,  period:'milestone',active:true},
 ];
+
 const CH_SVG={
-  bolt:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
-  sun:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
-  compass:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>`,
-  star:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  bolt:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
+  sun:     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
+  moon:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
+  zap:     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+  compass: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>`,
+  calendar:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
+  trophy:  `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4a2 2 0 0 1-2-2V5h4"/><path d="M18 9h2a2 2 0 0 0 2-2V5h-4"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M6 5v4a6 6 0 0 0 12 0V5H6z"/></svg>`,
+  star:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  crown:   `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h20M4 20l2-8 6 4 6-4 2 8"/><path d="M12 4l2 4h4l-3 3 1 4-4-2-4 2 1-4-3-3h4z"/></svg>`,
+  map:     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>`,
+  flag:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`,
+  medal:   `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="15" r="6"/><path d="M8.56 2.9A7 7 0 0 1 15.43 2.9L17 6H7z"/><path d="M12 12v3l1.5 1.5"/></svg>`,
+  fire:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c4 0 7-3 7-7 0-3-1.5-5-3.5-6.5.5 2-1 3.5-2 4C14 10.5 13 8 11 6c0 3-2 4.5-3 6.5-.5 1-.5 2-.5 2.5 0 4 3 7 4.5 7z"/></svg>`,
 };
 const LANDMARKS=[
   {name:'Empire State',lat:40.7484,lng:-73.9857,pts:50,emoji:null},
@@ -867,7 +921,7 @@ const LANDMARKS=[
   {name:'Washington Sq',lat:40.7308,lng:-73.9973,pts:30,emoji:null},
   {name:'Rockefeller Ctr',lat:40.7587,lng:-73.9787,pts:35,emoji:null},
   {name:'Grand Central',lat:40.7527,lng:-73.9772,pts:40,emoji:null},
-  {name:'Friday at Formans',lat:40.7397,lng:-73.9942,pts:1,emoji:'👨‍🍳'},
+  {name:'Friday at Formans',lat:40.7392,lng:-73.9946,pts:1,emoji:'👨‍🍳'},
 ];
 const FRIENDS_CFG=[];
 
@@ -1175,9 +1229,30 @@ function initMap(lat,lng){
     el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${getEmoji().emoji}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 
-    // Wait for idle (all tiles rendered) then generate dots once
-    map.once('idle', ()=>{
+    // Wait for idle (all tiles rendered) then generate dots
+    // Retry up to 3 times if initial scan returns too few dots
+    let dotScanAttempts = 0;
+    function attemptDotScan(){
+      dotScanAttempts++;
       buildRoadDots(lat,lng);
+      // Check after 3 seconds if we got enough dots — if not, retry
+      setTimeout(()=>{
+        const dotCount = Object.keys(DOTS).length;
+        if(dotCount < 10 && dotScanAttempts < 3){
+          console.log(`[WagaWaga] Only ${dotCount} dots found, retrying scan (attempt ${dotScanAttempts+1})...`);
+          document.getElementById('dotLoader').textContent='⬤ Retrying scan…';
+          document.getElementById('dotLoader').classList.remove('gone');
+          // Wait for map to fully settle then retry
+          setTimeout(()=>{
+            map.once('idle', attemptDotScan);
+            map.easeTo({zoom:15,duration:800}); // zoom out slightly to load more tiles
+            setTimeout(()=>map.easeTo({center:[lng,lat],zoom:16,duration:800}),900);
+          },500);
+        }
+      },3000);
+    }
+    map.once('idle', ()=>{
+      attemptDotScan();
       updateTrail();
     });
 
@@ -1217,26 +1292,74 @@ function checkCollect(lat,lng){
   });
 }
 
+function awardChallenge(id, bonus, msg){
+  const c=S.challenges?.find(c=>c.id===id);
+  if(!c||c.done) return;
+  c.done=true;
+  S.todayDots+=bonus;S.weekDots+=bonus;S.allDots+=bonus;walkBonus+=bonus;
+  showToast(ICO.star,`${msg} +${bonus.toLocaleString()} pts`);
+}
+
 function collect(d){
   if(S.eatenIds[d.id]) return;
   S.eatenIds[d.id]=true;
   S.todayDots+=d.pts;S.weekDots+=d.pts;S.allDots+=d.pts;S.walkedToday=true;
   S.collectedToday.unshift({pts:d.pts,lat:d.lat,lng:d.lng,type:d.type,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
   if(S.collectedToday.length>200) S.collectedToday.pop();
-  const c1=S.challenges?.find(c=>c.id==='c1');
-  if(c1&&!c1.done){c1.prog=S.todayDots;if(c1.prog>=c1.total){c1.done=true;S.todayDots+=300;S.weekDots+=300;S.allDots+=300;walkBonus+=300;showToast(ICO.star,'Challenge complete! +300 pts');}}
+
+  const now=new Date();
+  const hr=now.getHours();
+  const ch=id=>S.challenges?.find(c=>c.id===id);
+
+  // c1 — Daily Grind: 50 dots today
+  const c1=ch('c1');
+  if(c1&&!c1.done){c1.prog=S.todayDots;if(c1.prog>=c1.total) awardChallenge('c1',300,'Daily Grind complete!');}
+
+  // c_eb — Early Bird: 20 dots before 9am
+  const ceb=ch('c_eb');
+  if(ceb&&!ceb.done&&hr<9){ceb.prog++;if(ceb.prog>=ceb.total) awardChallenge('c_eb',200,'Early Bird complete!');}
+
+  // c_no — Night Owl: 20 dots after 8pm
+  const cno=ch('c_no');
+  if(cno&&!cno.done&&hr>=20){cno.prog++;if(cno.prog>=cno.total) awardChallenge('c_no',200,'Night Owl complete!');}
+
+  // c_sr — Speed Run: 10 dots in 5 minutes
+  const csr=ch('c_sr');
+  if(csr&&!csr.done){
+    if(!S.speedRunStart||Date.now()-S.speedRunStart>300000){S.speedRunStart=Date.now();S.speedRunDots=0;}
+    S.speedRunDots++;csr.prog=S.speedRunDots;
+    if(csr.prog>=csr.total) awardChallenge('c_sr',150,'Speed Run complete!');
+  }
+
+  // c_leg — Legend: 1000 dots this month
+  const cleg=ch('c_leg');
+  if(cleg&&!cleg.done){cleg.prog=S.allDots;if(cleg.prog>=cleg.total) awardChallenge('c_leg',2000,'Legend complete!');}
+
+  // c_fs — First Steps: first dot ever
+  const cfs=ch('c_fs');
+  if(cfs&&!cfs.done){cfs.prog=1;awardChallenge('c_fs',50,'First Steps complete!');}
+
+  // c_100 — Century: 100 total dots
+  const c100=ch('c_100');
+  if(c100&&!c100.done){c100.prog=S.allDots;if(c100.prog>=c100.total) awardChallenge('c_100',300,'Century complete!');}
+
+  // c_fire — On Fire: 7 day streak (checked on streak update)
+  const cfire=ch('c_fire');
+  if(cfire&&!cfire.done){cfire.prog=S.streak;if(cfire.prog>=cfire.total) awardChallenge('c_fire',500,'On Fire complete!');}
+
+  // golden dot challenges
   if(d.type==='golden'){
     if(tracking) walkGolden++;
-    const c4=S.challenges?.find(c=>c.id==='c4');
-    if(c4&&!c4.done){c4.prog++;if(c4.prog>=c4.total){c4.done=true;S.todayDots+=1500;S.weekDots+=1500;S.allDots+=1500;walkBonus+=1500;showToast(ICO.star,'Golden Hunter complete! +1500 pts');}}
+    const c4=ch('c4');
+    if(c4&&!c4.done){c4.prog++;if(c4.prog>=c4.total) awardChallenge('c4',1500,'Golden Hunter complete!');}
   }
+
   save();refreshGL();updateUI();renderCh();updateTrail();
-  // Track dot in territory system
   pushTerritoryDot(d.lat,d.lng,d.pts);
   burst(d.lng,d.lat,d.type);
   if(d.type==='golden') showToast(ICO.star,`Golden dot! +${d.pts} pts`);
   else if(d.type==='landmark'){
-    const ico = d.emoji ? `<span style="font-size:15px">${d.emoji}</span>` : ICO.teal;
+    const ico=d.emoji?`<span style="font-size:15px">${d.emoji}</span>`:ICO.teal;
     showToast(ico,`${d.label} — +${d.pts} pts!`);
   }
   nudge();
@@ -1560,12 +1683,44 @@ function renderTerr(){
 function renderCh(){
   const el=document.getElementById('chList');el.innerHTML='';
   const clk=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>`;
-  CHS.forEach(c=>{
-    const sv=S.challenges?.find(s=>s.id===c.id);const prog=sv?sv.prog:0;
-    const pct=Math.min(100,Math.round(prog/c.total*100));
-    const d=document.createElement('div');d.className=`ch-card ${c.active?'active':''}`;
-    d.innerHTML=`<div class="ch-icon">${CH_SVG[c.icon]||''}</div><div class="ch-body"><div class="ch-title">${c.title}</div><div class="ch-sub">${c.desc}</div><div class="ch-prog"><div class="ch-bar" style="width:${pct}%"></div></div><div class="ch-meta"><div class="ch-pct">${prog} / ${c.total}</div><div class="ch-timer">${clk} ${c.timer}</div></div></div><div class="ch-reward"><div class="ch-reward-val">+${c.reward.toLocaleString()}</div><span class="ch-reward-lbl">pts</span></div>`;
-    el.appendChild(d);
+  const periods=[
+    {key:'daily',    label:'Daily'},
+    {key:'weekly',   label:'Weekly'},
+    {key:'monthly',  label:'Monthly'},
+    {key:'milestone',label:'Milestones'},
+  ];
+  periods.forEach(p=>{
+    const group=CHS.filter(c=>c.period===p.key);
+    if(!group.length) return;
+    const hdr=document.createElement('div');
+    hdr.style.cssText='font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--text3);padding:6px 2px 4px';
+    hdr.textContent=p.label;
+    el.appendChild(hdr);
+    group.forEach(c=>{
+      const sv=S.challenges?.find(s=>s.id===c.id);
+      const prog=sv?sv.prog:0;
+      const done=sv?sv.done:false;
+      const pct=Math.min(100,Math.round(prog/c.total*100));
+      const d=document.createElement('div');
+      d.className=`ch-card ${!done?'active':''}`;
+      d.style.opacity=done?'0.5':'1';
+      d.innerHTML=`
+        <div class="ch-icon">${CH_SVG[c.icon]||''}</div>
+        <div class="ch-body">
+          <div class="ch-title">${done?'✓ ':''} ${c.title}</div>
+          <div class="ch-sub">${c.desc}</div>
+          <div class="ch-prog"><div class="ch-bar" style="width:${pct}%;background:${done?'var(--green)':'var(--teal)'}"></div></div>
+          <div class="ch-meta">
+            <div class="ch-pct" style="color:${done?'var(--green)':'var(--teal-light)'}">${done?'Complete':prog+' / '+c.total}</div>
+            <div class="ch-timer">${clk} ${c.timer}</div>
+          </div>
+        </div>
+        <div class="ch-reward">
+          <div class="ch-reward-val" style="color:${done?'var(--green)':'var(--gold)'}">+${c.reward.toLocaleString()}</div>
+          <span class="ch-reward-lbl">pts</span>
+        </div>`;
+      el.appendChild(d);
+    });
   });
 }
 
@@ -1628,27 +1783,46 @@ function askInit(){ /* initials replaced by emoji tiers */ }
 
 /* ─── MIDNIGHT RESET ─────────────────────────────────────── */
 function doMidnightReset(){
-  // Save yesterday's score to week history
-  S.weekHistory = S.weekHistory || [];
-  S.weekHistory.unshift({date:S.day, dots:S.todayDots});
+  S.weekHistory=S.weekHistory||[];
+  S.weekHistory.unshift({date:S.day,dots:S.todayDots});
   if(S.weekHistory.length>7) S.weekHistory.pop();
-  // Update streak
-  S.streak = S.walkedToday ? (S.streak||0)+1 : 0;
+  S.streak=S.walkedToday?(S.streak||0)+1:0;
+
+  // Consistent challenge — increment days walked this week
+  if(S.walkedToday){
+    S.daysWalkedThisWeek=(S.daysWalkedThisWeek||0)+1;
+    const ccon=S.challenges?.find(c=>c.id==='c_con');
+    if(ccon&&!ccon.done){ccon.prog=S.daysWalkedThisWeek;if(ccon.prog>=ccon.total) awardChallenge('c_con',1000,'Consistent complete!');}
+  }
+
+  // On Fire streak challenge
+  const cfire=S.challenges?.find(c=>c.id==='c_fire');
+  if(cfire&&!cfire.done){cfire.prog=S.streak;if(cfire.prog>=cfire.total) awardChallenge('c_fire',500,'On Fire complete!');}
+
   // Reset daily values
-  S.todayDots = 0;
-  S.eatenIds  = {};
-  S.collectedToday = [];
-  S.walkedToday = false;
-  S.day = toDay();
-  // Reset daily challenge
-  if(S.challenges) S.challenges.forEach(c=>{if(c.id==='c1'){c.prog=0;c.done=false;}});
+  S.todayDots=0;S.eatenIds={};S.collectedToday=[];S.walkedToday=false;
+  S.day=toDay();S.speedRunStart=null;S.speedRunDots=0;
+
+  // Reset daily challenges
+  ['c1','c_eb','c_no','c_sr'].forEach(id=>{
+    const c=S.challenges?.find(c=>c.id===id);
+    if(c){c.prog=0;c.done=false;}
+  });
+
+  // Reset weekly challenges on Monday
+  const dow=new Date().getDay();
+  if(dow===1){
+    S.neighborhoodsThisWeek=[];
+    S.daysWalkedThisWeek=0;
+    ['c3','c_con','c_td'].forEach(id=>{
+      const c=S.challenges?.find(c=>c.id===id);
+      if(c){c.prog=0;c.done=false;}
+    });
+  }
+
   save();
-  // Refresh dot types (golden positions change daily)
   Object.values(DOTS).forEach(d=>{
-    if(d.type!=='landmark'){
-      const{type,pts}=dotType(d.id);
-      d.type=type;d.pts=pts;
-    }
+    if(d.type!=='landmark'){const{type,pts}=dotType(d.id);d.type=type;d.pts=pts;}
   });
   refreshGL();updateUI();renderCh();renderRecap();
   showToast(ICO.walk,'Midnight — fresh dots are live!');

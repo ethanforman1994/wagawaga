@@ -128,18 +128,30 @@ async function loadCloudProfile(uid){
       const d = snap.data();
       const isToday = d.todayDate === window._toDay();
       if(isToday){
+        // Same day — restore scores and eaten dots from cloud
         window._S.todayDots = d.todayDots || window._S.todayDots;
-        // Restore eaten dot IDs from cloud so dots stay eaten after cache clear
         if(d.eatenIds && typeof d.eatenIds === 'object'){
           window._S.eatenIds = Object.assign({}, d.eatenIds, window._S.eatenIds);
         }
       } else {
-        // New day — clear eaten IDs
-        window._S.eatenIds = {};
+        // New day — reset daily values and push clean slate to Firebase
+        window._S.todayDots  = 0;
+        window._S.eatenIds   = {};
+        window._S.walkedToday = false;
+        window._S.day = window._toDay();
+        if(window._S.challenges){
+          window._S.challenges.forEach(c=>{if(c.id==='c1'){c.prog=0;c.done=false;}});
+        }
+        // Update streak based on whether they walked yesterday
+        window._S.streak = d.walkedToday ? (d.streak||0)+1 : 0;
+        window._save();
+        // Push reset to Firebase so cloud is also updated
+        if(window._pushCloud) window._pushCloud();
       }
       window._S.weekDots    = d.weekDots    || window._S.weekDots;
       window._S.allDots     = d.allDots     || window._S.allDots;
-      window._S.streak      = d.streak      || window._S.streak;
+      // Only restore streak from cloud if we didn't just recalculate it
+      if(isToday) window._S.streak = d.streak || window._S.streak;
       window._S.displayName = d.displayName || window._S.displayName || '';
       window._save();
       window._updateUI();
@@ -788,7 +800,13 @@ async function pushTerritoryDot(lat,lng,pts){
 
 // ── Load and render live territories ─────────────────────────
 async function loadTerritories(){
-  if(!window._fbDb||!window._fbFirestore) return;
+  // Retry up to 5 times if Firebase isn't ready yet
+  if(!window._fbDb||!window._fbFirestore||!window._fbUid){
+    const el=document.getElementById('terrList');
+    el.innerHTML='<div style="padding:20px;color:var(--text2);font-size:13px;text-align:center">Connecting…</div>';
+    setTimeout(loadTerritories, 1500);
+    return;
+  }
   const month=toDay().slice(0,7);
   try{
     const {getDocs,query:fbQ,collection:fbCol,where,orderBy:fbOrd} = window._fbFirestore;
@@ -803,7 +821,10 @@ async function loadTerritories(){
       rows.push({name:data.name,ownerUid:data.ownerUid,ownerDots:data.ownerDots,myDots,pct,isOwner,users:data.users||{}});
     });
     renderTerrLive(rows);
-  }catch(e){console.warn('loadTerritories error',e);}
+  }catch(e){
+    console.warn('loadTerritories error',e);
+    document.getElementById('terrList').innerHTML='<div style="padding:20px;color:var(--text2);font-size:13px;text-align:center">Couldn\'t load territories.<br><span style="font-size:11px;opacity:.6">Try closing and reopening the tab.</span></div>';
+  }
 }
 
 function renderTerrLive(rows){

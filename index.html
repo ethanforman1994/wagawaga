@@ -31,8 +31,7 @@ const fbApp = initializeApp(firebaseConfig);
 const auth  = getAuth(fbApp);
 const db    = getFirestore(fbApp);
 window._fbDb = db;
-// Expose all Firestore helpers needed by the main script
-window._fbFirestore = {getDocs, query, collection, where, orderBy, limit, doc, setDoc, getDoc, serverTimestamp};
+window._fbFirestore = {getDocs, query, collection, where, orderBy, limit, doc, setDoc, getDoc, serverTimestamp, onSnapshot};
 
 let fbUid = null;
 let confirmationResult = null;
@@ -335,7 +334,34 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 .goal-ring-pct.done{color:var(--green)}
 .goal-ring-sub{font-size:8px;color:var(--text3);margin-top:1px}
 
-/* WALK SUMMARY MODAL */
+/* BATTLE MODE NAV */
+.snav.ob{background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#f87171}
+.snav.ob svg{stroke:#f87171}
+
+/* BATTLE PANEL */
+.battle-wrap{padding:10px 14px 14px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;flex:1;scrollbar-width:none}
+.battle-wrap::-webkit-scrollbar{display:none}
+.battle-header{background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:16px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.battle-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.battle-title{font-size:15px;font-weight:900;letter-spacing:-.3px}
+.battle-sub{font-size:10px;color:var(--text2);margin-top:2px}
+.battle-score-chip{background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:6px 12px;text-align:center;flex-shrink:0}
+.battle-score-val{font-size:22px;font-weight:900;color:#f87171;letter-spacing:-1px;line-height:1}
+.battle-score-lbl{font-size:9px;color:var(--text2);margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
+.battle-timer-row{display:flex;flex-direction:column;gap:4px}
+.battle-timer-bar-bg{height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
+.battle-timer-bar{height:100%;background:#f87171;border-radius:2px;transition:width .5s}
+.battle-timer-lbl{font-size:10px;color:var(--text2)}
+.battle-lb{display:flex;flex-direction:column;gap:6px}
+.battle-row{display:flex;align-items:center;gap:10px;background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:10px 12px}
+.battle-row.you{border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.05)}
+.battle-rank{font-size:11px;font-weight:700;color:var(--text3);width:20px;flex-shrink:0;text-align:center}
+.battle-row.you .battle-rank{color:#f87171}
+.battle-av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.battle-name{flex:1;font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.battle-dots{font-size:16px;font-weight:900;color:var(--text);letter-spacing:-.5px}
+.battle-dots-lbl{font-size:9px;color:var(--text3);margin-left:2px}
+.battle-mode-active .mapboxgl-canvas{filter:hue-rotate(320deg) saturate(1.2)}
 .walk-summary{position:absolute;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .3s}
 .walk-summary.show{opacity:1;pointer-events:all}
 .ws-card{background:var(--slate-2);border:1px solid var(--border2);border-radius:28px 28px 0 0;padding:28px 24px 40px;width:100%;max-width:430px;transform:translateY(40px);transition:transform .35s cubic-bezier(.32,.72,0,1)}
@@ -655,6 +681,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
       <button class="snav" onclick="showPanel('recap',this,'og')">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>Recap
       </button>
+      <button class="snav" id="battleNavBtn" onclick="showPanel('battle',this,'ob')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z"/><path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/><path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z"/><path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z"/><path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z"/><path d="M15.5 9H14v1.5c0 .83.67 1.5 1.5 1.5"/><path d="M10 9.5C10 8.67 9.33 8 8.5 8H3.5C2.67 8 2 8.67 2 9.5S2.67 11 3.5 11h5c.83 0 1.5-.67 1.5-1.5z"/><path d="M8.5 15H10v-1.5c0-.83-.67-1.5-1.5-1.5"/></svg>Battle
+      </button>
     </div>
     <div class="sheet-body">
       <div class="panel" id="panel-today">
@@ -698,6 +727,27 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
       <div class="panel hidden" id="panel-territories"><div class="hscroll" id="terrList"></div></div>
       <div class="panel hidden" id="panel-challenges"><div class="vscroll" id="chList"></div></div>
       <div class="panel hidden" id="panel-recap"><div class="recap-wrap" id="recapWrap"></div></div>
+      <div class="panel hidden" id="panel-battle">
+        <div class="battle-wrap">
+          <div class="battle-header">
+            <div class="battle-title-row">
+              <div>
+                <div class="battle-title">⚔️ Weekly Battle</div>
+                <div class="battle-sub" id="battleSub">Loading…</div>
+              </div>
+              <div class="battle-score-chip">
+                <div class="battle-score-val" id="battleMyScore">0</div>
+                <div class="battle-score-lbl">your dots</div>
+              </div>
+            </div>
+            <div class="battle-timer-row">
+              <div class="battle-timer-bar-bg"><div class="battle-timer-bar" id="battleTimerBar" style="width:100%"></div></div>
+              <div class="battle-timer-lbl" id="battleTimerLbl">Ends Sunday midnight</div>
+            </div>
+          </div>
+          <div class="battle-lb" id="battleLb"></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -924,6 +974,254 @@ const LANDMARKS=[
   {name:'Friday at Formans',lat:40.7392,lng:-73.9946,pts:1,emoji:'👨‍🍳'},
 ];
 const FRIENDS_CFG=[];
+
+/* ─── BATTLE MODE ────────────────────────────────────────────
+   Weekly shared Pac-Man board. Dots stored in Firebase, eaten
+   by one player = gone for everyone. Color trails show who
+   ate what. Resets every Monday midnight.                    */
+
+// Player color assigned deterministically from UID
+function playerColor(uid){
+  if(!uid) return '#0EB8A0';
+  let h=0;for(let i=0;i<uid.length;i++)h=(Math.imul(31,h)+uid.charCodeAt(i))|0;
+  const COLORS=['#f87171','#fb923c','#fbbf24','#34d399','#38bdf8','#818cf8','#e879f9','#f472b6'];
+  return COLORS[Math.abs(h)%COLORS.length];
+}
+
+// Week ID = YYYY-Www (e.g. 2026-W16)
+function weekId(){
+  const d=new Date();
+  const jan1=new Date(d.getFullYear(),0,1);
+  const wk=Math.ceil(((d-jan1)/86400000+jan1.getDay()+1)/7);
+  return `${d.getFullYear()}-W${String(wk).padStart(2,'0')}`;
+}
+
+// Seconds until next Sunday midnight
+function secsTilSunday(){
+  const now=new Date();
+  const sun=new Date(now);
+  sun.setDate(now.getDate()+(7-now.getDay())%7||7);
+  sun.setHours(0,0,0,0);
+  return Math.max(0,Math.floor((sun-now)/1000));
+}
+
+let battleMode=false;
+let battleDots={};       // id → {id,lat,lng,eaten,eaterUid,eaterColor,eaterEmoji}
+let battleMyScore=0;
+let battleUnsub=null;    // Firestore unsubscribe fn
+let battleScoreUnsub=null;
+
+// ── Initialize battle for this week ──────────────────────────
+async function initBattle(){
+  if(!window._fbDb||!window._fbFirestore||!window._fbUid) return;
+  const {collection,query,onSnapshot,doc,setDoc,getDocs,where}=window._fbFirestore;
+  const wid=weekId();
+
+  // Subscribe to battle dot changes
+  const dotsRef=collection(window._fbDb,`battles/${wid}/dots`);
+  if(battleUnsub) battleUnsub();
+  battleUnsub=onSnapshot(dotsRef,snap=>{
+    snap.forEach(d=>{
+      const data=d.data();
+      battleDots[d.id]={id:d.id,...data};
+    });
+    refreshBattleGL();
+    updateBattleScore();
+  });
+
+  // Subscribe to score leaderboard
+  const scoresRef=collection(window._fbDb,`battles/${wid}/scores`);
+  if(battleScoreUnsub) battleScoreUnsub();
+  battleScoreUnsub=onSnapshot(scoresRef,snap=>{
+    const rows=[];
+    snap.forEach(d=>rows.push({uid:d.id,...d.data()}));
+    rows.sort((a,b)=>b.dots-a.dots);
+    renderBattleLB(rows);
+  });
+
+  // Generate dots if none exist yet for this week
+  const existing=await getDocs(dotsRef);
+  if(existing.size===0 && playerLat!==null){
+    generateBattleDots(wid);
+  }
+
+  updateBattleTimer();
+  setInterval(updateBattleTimer,60000);
+}
+
+// ── Generate shared dots for the week ────────────────────────
+async function generateBattleDots(wid){
+  if(!map||!window._fbFirestore) return;
+  const {doc,setDoc,collection}=window._fbFirestore;
+  document.getElementById('battleSub').textContent='Generating weekly board…';
+
+  // Use existing road dots as source — sample every 3rd dot for less density
+  const allDots=Object.values(DOTS).filter(d=>d.type!=='landmark');
+  const battleSet=allDots.filter((_,i)=>i%3===0).slice(0,800);
+
+  // Write to Firebase in batches
+  let written=0;
+  for(const d of battleSet){
+    const ref=doc(window._fbDb,`battles/${wid}/dots`,d.id);
+    await setDoc(ref,{
+      lat:d.lat,lng:d.lng,
+      eaten:false,eaterUid:null,eaterColor:null,eaterEmoji:null
+    });
+    written++;
+    if(written%50===0) document.getElementById('battleSub').textContent=`Building board… ${written}/${battleSet.length}`;
+  }
+  document.getElementById('battleSub').textContent=`${written} dots · ends Sunday midnight`;
+}
+
+// ── Eat a battle dot ─────────────────────────────────────────
+async function eatBattleDot(dotId){
+  if(!window._fbUid||!window._fbFirestore) return;
+  const bd=battleDots[dotId];
+  if(!bd||bd.eaten) return;
+  const {doc,setDoc}=window._fbFirestore;
+  const wid=weekId();
+  const color=playerColor(window._fbUid);
+  const emoji=getEmoji().emoji;
+
+  // Optimistically update local state
+  bd.eaten=true;bd.eaterUid=window._fbUid;bd.eaterColor=color;bd.eaterEmoji=emoji;
+  battleMyScore++;
+  refreshBattleGL();
+  updateBattleScore();
+  burst(bd.lng,bd.lat,'regular');
+
+  // Write to Firebase
+  await setDoc(doc(window._fbDb,`battles/${wid}/dots`,dotId),
+    {eaten:true,eaterUid:window._fbUid,eaterColor:color,eaterEmoji:emoji},{merge:true});
+
+  // Update score
+  await setDoc(doc(window._fbDb,`battles/${wid}/scores`,window._fbUid),{
+    displayName:S.displayName||'Anonymous',emoji,color,
+    dots:battleMyScore
+  },{merge:true});
+}
+
+// ── Check if player is near any battle dots ───────────────────
+function checkBattleCollect(lat,lng){
+  if(!battleMode) return;
+  Object.values(battleDots).forEach(d=>{
+    if(d.eaten) return;
+    if(hav(lat,lng,d.lat,d.lng)<=COLLECT_M) eatBattleDot(d.id);
+  });
+}
+
+// ── GL layer for battle dots ──────────────────────────────────
+function refreshBattleGL(){
+  if(!map) return;
+  const uneaten=Object.values(battleDots).filter(d=>!d.eaten);
+  const eaten=Object.values(battleDots).filter(d=>d.eaten);
+
+  const gj={type:'FeatureCollection',features:[
+    ...uneaten.map(d=>({type:'Feature',
+      geometry:{type:'Point',coordinates:[d.lng,d.lat]},
+      properties:{eaten:false,color:'#ffffff'}})),
+    ...eaten.map(d=>({type:'Feature',
+      geometry:{type:'Point',coordinates:[d.lng,d.lat]},
+      properties:{eaten:true,color:d.eaterColor||'#555',emoji:d.eaterEmoji||''}})),
+  ]};
+
+  if(map.getSource('battle-dots')){
+    map.getSource('battle-dots').setData(gj);
+  } else {
+    map.addSource('battle-dots',{type:'geojson',data:gj});
+    // Uneaten dots — white
+    map.addLayer({id:'battle-uneaten',type:'circle',source:'battle-dots',
+      filter:['==',['get','eaten'],false],
+      paint:{
+        'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],
+        'circle-color':'#ffffff','circle-opacity':0.9,
+        'circle-stroke-width':1.5,'circle-stroke-color':'rgba(255,255,255,0.4)'
+      }});
+    // Eaten dots — colored by player
+    map.addLayer({id:'battle-eaten',type:'circle',source:'battle-dots',
+      filter:['==',['get','eaten'],true],
+      paint:{
+        'circle-radius':['interpolate',['linear'],['zoom'],13,4,16,7,19,10],
+        'circle-color':['get','color'],
+        'circle-opacity':0.7,
+        'circle-stroke-width':0
+      }});
+  }
+}
+
+function showBattleDots(){
+  if(map.getLayer('battle-uneaten')) map.setLayoutProperty('battle-uneaten','visibility','visible');
+  if(map.getLayer('battle-eaten'))   map.setLayoutProperty('battle-eaten','visibility','visible');
+  // Hide regular dots
+  ['dots-reg','dots-gold','dots-lm','dots-lm-emoji','dots-eaten'].forEach(l=>{
+    if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','none');
+  });
+}
+
+function hideBattleDots(){
+  if(map.getLayer('battle-uneaten')) map.setLayoutProperty('battle-uneaten','visibility','none');
+  if(map.getLayer('battle-eaten'))   map.setLayoutProperty('battle-eaten','visibility','none');
+  // Show regular dots
+  ['dots-reg','dots-gold','dots-lm','dots-lm-emoji','dots-eaten'].forEach(l=>{
+    if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','visible');
+  });
+}
+
+// ── UI helpers ───────────────────────────────────────────────
+function updateBattleScore(){
+  battleMyScore=Object.values(battleDots).filter(d=>d.eaten&&d.eaterUid===window._fbUid).length;
+  document.getElementById('battleMyScore').textContent=battleMyScore;
+}
+
+function updateBattleTimer(){
+  const secs=secsTilSunday();
+  const days=Math.floor(secs/86400);
+  const hrs=Math.floor((secs%86400)/3600);
+  const mins=Math.floor((secs%3600)/60);
+  const lbl=days>0?`${days}d ${hrs}h left`:`${hrs}h ${mins}m left`;
+  const el=document.getElementById('battleTimerLbl');
+  const bar=document.getElementById('battleTimerBar');
+  if(el) el.textContent=lbl;
+  // Bar shows % of week remaining (week = 604800 secs)
+  if(bar) bar.style.width=Math.round(secs/604800*100)+'%';
+  const sub=document.getElementById('battleSub');
+  const total=Object.keys(battleDots).length;
+  const eaten=Object.values(battleDots).filter(d=>d.eaten).length;
+  if(sub&&total>0) sub.textContent=`${total-eaten} dots remaining · ${lbl}`;
+}
+
+function renderBattleLB(rows){
+  const el=document.getElementById('battleLb');if(!el)return;
+  el.innerHTML='';
+  if(!rows.length){
+    el.innerHTML='<div style="padding:10px;color:var(--text2);font-size:12px;text-align:center">No scores yet — start collecting!</div>';
+    return;
+  }
+  rows.forEach((r,i)=>{
+    const you=r.uid===window._fbUid;
+    const d=document.createElement('div');
+    d.className=`battle-row ${you?'you':''}`;
+    d.innerHTML=`
+      <div class="battle-rank">#${i+1}</div>
+      <div class="battle-av" style="background:${r.color||'#333'}">${r.emoji||'🐣'}</div>
+      <div class="battle-name">${r.displayName||'Anonymous'}${you?' (you)':''}</div>
+      <div><span class="battle-dots">${r.dots||0}</span><span class="battle-dots-lbl">dots</span></div>`;
+    el.appendChild(d);
+  });
+}
+
+// ── Toggle battle mode on/off ────────────────────────────────
+function toggleBattleMode(on){
+  battleMode=on;
+  if(on){
+    showBattleDots();
+    document.getElementById('map').classList.add('battle-mode-active');
+    initBattle();
+  } else {
+    hideBattleDots();
+    document.getElementById('map').classList.remove('battle-mode-active');
+  }
+}
 
 /* ─── EMOJI TIERS ────────────────────────────────────────────
    Assigned by streak. Each tier unlocks at a streak milestone.
@@ -1460,6 +1758,7 @@ function startWatch(){
     playerLat=lat;playerLng=lng;
     if(playerMarker) playerMarker.setLngLat([lng,lat]);
     checkCollect(lat,lng);
+    checkBattleCollect(lat,lng);
     updateNearby(lat,lng);
     addGhost(lat,lng);
 
@@ -1612,10 +1911,13 @@ function showPanel(id,el,cls){
   if(!sheetOpen){sheetOpen=true;document.getElementById('sheet').classList.remove('collapsed');document.getElementById('walkWrap').style.bottom='';document.getElementById('fabs').style.bottom='';}
   document.querySelectorAll('.panel').forEach(p=>p.classList.add('hidden'));
   document.getElementById('panel-'+id).classList.remove('hidden');
-  if(el){document.querySelectorAll('.snav').forEach(s=>s.classList.remove('og','ot'));el.classList.add(cls);}
+  if(el){document.querySelectorAll('.snav').forEach(s=>s.classList.remove('og','ot','ob'));el.classList.add(cls);}
   if(id==='recap') renderRecap();
   if(id==='challenges') renderCh();
   if(id==='territories') renderTerr();
+  // Toggle battle map layer
+  if(id==='battle') toggleBattleMode(true);
+  else if(battleMode) toggleBattleMode(false);
 }
 
 /* ─── RENDER LEADERBOARD ─────────────────────────────────── */

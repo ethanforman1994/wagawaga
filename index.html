@@ -31,8 +31,8 @@ const fbApp = initializeApp(firebaseConfig);
 const auth  = getAuth(fbApp);
 const db    = getFirestore(fbApp);
 window._fbDb = db;
-// Expose Firestore query helpers for territory system
-window._fbFirestore = {getDocs,query,collection,where,orderBy,limit};
+// Expose all Firestore helpers needed by the main script
+window._fbFirestore = {getDocs, query, collection, where, orderBy, limit, doc, setDoc, getDoc, serverTimestamp};
 
 let fbUid = null;
 let confirmationResult = null;
@@ -776,10 +776,11 @@ async function fetchNeighborhood(lat,lng){
 
 // ── Push dot collection to territory score in Firebase ───────
 async function pushTerritoryDot(lat,lng,pts){
-  if(!window._fbUid||!lat||!lng) return;
+  if(!window._fbUid||!window._fbDb||!window._fbFirestore||!lat||!lng) return;
   const hood=await fetchNeighborhood(lat,lng);
   if(!hood) return;
-  const month=toDay().slice(0,7); // e.g. "2025-04"
+  const {doc,setDoc,getDoc,serverTimestamp}=window._fbFirestore;
+  const month=toDay().slice(0,7);
   const key=`${hood}__${month}`.replace(/[^a-zA-Z0-9_]/g,'_');
   try{
     const ref=doc(window._fbDb,'territories',key);
@@ -787,14 +788,9 @@ async function pushTerritoryDot(lat,lng,pts){
     const existing=snap.exists()?snap.data():{};
     const userDots=(existing.users?.[window._fbUid]||0)+pts;
     const users={...(existing.users||{}),[window._fbUid]:userDots};
-    // Find owner = user with most dots
     let ownerUid=window._fbUid,ownerDots=0;
     Object.entries(users).forEach(([uid,d])=>{if(d>ownerDots){ownerDots=d;ownerUid=uid;}});
-    await setDoc(ref,{
-      name:hood,month,users,
-      ownerUid,ownerDots,
-      updatedAt:serverTimestamp()
-    },{merge:true});
+    await setDoc(ref,{name:hood,month,users,ownerUid,ownerDots,updatedAt:serverTimestamp()},{merge:true});
   }catch(e){console.warn('territory push error',e);}
 }
 

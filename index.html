@@ -1434,12 +1434,21 @@ function buildRoadDots(centerLat, centerLng, silent=false){
   lastScanLat=centerLat; lastScanLng=centerLng;
   if(!silent) document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
 
-  // Query road features from loaded tiles
+  // Query road features — try multiple source/layer combos
   let allFeatures=[];
-  try{ allFeatures=map.querySourceFeatures('composite',{sourceLayer:'road'}); }
-  catch(e){}
+  const combos=[
+    {source:'composite',layer:'road'},
+    {source:'mapbox',layer:'road'},
+    {source:'composite',layer:'roads'},
+  ];
+  for(const {source,layer} of combos){
+    try{
+      const f=map.querySourceFeatures(source,{sourceLayer:layer});
+      if(f.length>allFeatures.length) allFeatures=f;
+    }catch(e){}
+  }
 
-  // Fallback: grid of screen points
+  // Fallback: queryRenderedFeatures across screen grid
   if(allFeatures.length<10){
     const W=map.getCanvas().width/(window.devicePixelRatio||1);
     const H=map.getCanvas().height/(window.devicePixelRatio||1);
@@ -1447,12 +1456,32 @@ function buildRoadDots(centerLat, centerLng, silent=false){
     for(let x=0;x<=4;x++) for(let y=0;y<=6;y++){
       try{
         map.queryRenderedFeatures([W*x/4,H*y/6]).forEach(f=>{
-          const key=f.id+'_'+f.layer.id;
-          if(!seen.has(key)){seen.add(key);allFeatures.push(f);}
+          if((f.sourceLayer||'').toLowerCase().includes('road')){
+            const key=f.id+'_'+f.layer.id;
+            if(!seen.has(key)){seen.add(key);allFeatures.push(f);}
+          }
         });
       }catch(e){}
     }
   }
+
+  // Last resort: queryRenderedFeatures with no filter, take anything with road geometry
+  if(allFeatures.length<10){
+    const W=map.getCanvas().width/(window.devicePixelRatio||1);
+    const H=map.getCanvas().height/(window.devicePixelRatio||1);
+    const seen=new Set();
+    try{
+      map.queryRenderedFeatures([[0,0],[W,H]]).forEach(f=>{
+        const sl=(f.sourceLayer||f.layer?.['source-layer']||'').toLowerCase();
+        if(sl.includes('road')||sl.includes('street')||sl.includes('path')){
+          const key=f.id+'_'+f.layer.id;
+          if(!seen.has(key)){seen.add(key);allFeatures.push(f);}
+        }
+      });
+    }catch(e){}
+  }
+
+  console.log(`[WagaWaga] buildRoadDots: ${allFeatures.length} features`);
 
   let added=0;
 
@@ -1590,17 +1619,53 @@ function initMap(lat,lng){
     el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${getEmoji().emoji}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 
-    // Fire dot scan — use idle if not yet reached, else fire directly
     let scanned=false;
     function doScan(){
       if(scanned) return;
+      // Log available source layers to find correct name
+      let features=[];
+      try{
+        const style=map.getStyle();
+        const sources=Object.keys(style.sources||{});
+        console.log('[WagaWaga] Available sources:',sources);
+        // Try multiple possible source/layer combinations
+        const combos=[
+          {source:'composite',layer:'road'},
+          {source:'mapbox',layer:'road'},
+          {source:'composite',layer:'roads'},
+        ];
+        for(const {source,layer} of combos){
+          try{
+            const f=map.querySourceFeatures(source,{sourceLayer:layer});
+            console.log(`[WagaWaga] ${source}/${layer}: ${f.length} features`);
+            if(f.length>5){features=f;break;}
+          }catch(e){}
+        }
+        // Fallback: queryRenderedFeatures with no filter gets everything
+        if(features.length<5){
+          const W=map.getCanvas().width/(window.devicePixelRatio||1);
+          const H=map.getCanvas().height/(window.devicePixelRatio||1);
+          const all=map.queryRenderedFeatures([[0,0],[W,H]]);
+          console.log('[WagaWaga] queryRenderedFeatures total:',all.length);
+          features=all.filter(f=>{
+            const sl=(f.sourceLayer||'').toLowerCase();
+            return sl==='road'||sl==='roads';
+          });
+          console.log('[WagaWaga] road features from rendered:',features.length);
+        }
+      }catch(e){ console.warn('[WagaWaga] source query error',e); }
+
+      if(features.length<5){
+        console.log('[WagaWaga] Not enough features yet, retrying in 2s…');
+        setTimeout(doScan,2000);
+        return;
+      }
       scanned=true;
       buildRoadDots(lat,lng);
       updateTrail();
     }
-    map.once('idle', doScan);
-    // Safety fallback — if idle never fires, scan after 3 seconds
-    setTimeout(doScan, 3000);
+    map.once('idle',()=>setTimeout(doScan,1000));
+    setTimeout(()=>{ if(!scanned){ scanned=true; buildRoadDots(lat,lng); updateTrail(); }},8000);
 
     updateUI();renderLB('day');renderTerr();renderCh();renderRecap();
   });

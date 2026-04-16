@@ -42,7 +42,6 @@ onAuthStateChanged(auth, user=>{
   if(user){
     fbUid = user.uid;
     window._fbUid = fbUid;
-    // Hide phone auth UI and request location
     document.getElementById('phoneAuthWrap').style.display='none';
     if(window._startApp) window._startApp();
     loadCloudProfile(fbUid);
@@ -797,7 +796,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 const TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
 const COLLECT_M  = 18;      // metres to collect a dot
 const DOT_STEP_M = 15;      // metres between dots along road (Pac-Man density)
-const SPAWN_R_M  = 4000;    // pre-load radius in metres
+const SPAWN_R_M  = 3000;    // pre-load radius in metres
 const GOLD_PCT   = 4;       // % chance a dot is golden
 
 /* ─── STORAGE ────────────────────────────────────────────── */
@@ -1362,7 +1361,7 @@ let map=null, playerMarker=null, playerLat=null, playerLng=null;
 let tracking=false, watchId=null, ghostOn=false, ghostPts=[];
 let dotsReady=false;
 let lastScanLat=null, lastScanLng=null;  // origin of last road scan
-const RESCAN_DIST_M = 400;               // trigger rescan after walking this far
+const RESCAN_DIST_M = 200;               // trigger rescan after walking this far
 
 /* Dot store: id → {id,lat,lng,type,pts,label} */
 const DOTS = {};
@@ -1430,36 +1429,35 @@ const WALKABLE_CLASSES = new Set([
 
 const SKIP_CLASSES = new Set(['motorway','ferry','aerialway','golf']);
 
-// ── Tilequery API fallback — fetches road data server-side ───
-async function buildRoadDotsFromAPI(centerLat, centerLng, silent=false){
-  if(!silent) document.getElementById('dotLoader').textContent='⬤ Fetching road data…';
+// ── Tilequery API — fetches road dots server-side anywhere ────
+async function buildRoadDots(centerLat, centerLng, silent=false){
+  lastScanLat=centerLat; lastScanLng=centerLng;
+  if(!silent) document.getElementById('dotLoader').textContent='⬤ Loading dots…';
 
-  const GRID_LAT = 0.003; // ~330m spacing
-  const GRID_LNG = 0.004;
-  const radiusDeg = SPAWN_R_M / 111320;
-  const points = [];
+  const GRID_LAT=0.0018, GRID_LNG=0.0022; // ~200m spacing
+  const radiusDeg=SPAWN_R_M/111320;
+  const points=[];
 
-  for(let dlat=-radiusDeg; dlat<=radiusDeg; dlat+=GRID_LAT){
-    for(let dlng=-radiusDeg; dlng<=radiusDeg; dlng+=GRID_LNG){
+  for(let dlat=-radiusDeg;dlat<=radiusDeg;dlat+=GRID_LAT)
+    for(let dlng=-radiusDeg;dlng<=radiusDeg;dlng+=GRID_LNG){
       const lat=centerLat+dlat, lng=centerLng+dlng;
-      if(hav(centerLat,centerLng,lat,lng) <= SPAWN_R_M) points.push({lat,lng});
+      if(hav(centerLat,centerLng,lat,lng)<=SPAWN_R_M) points.push({lat,lng});
     }
-  }
 
   let added=0;
-  const BATCH=8;
+  const BATCH=10;
+
   for(let i=0;i<points.length;i+=BATCH){
     await Promise.all(points.slice(i,i+BATCH).map(async ({lat,lng})=>{
       try{
         const r=await fetch(
-          `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${lng},${lat}.json?layers=road&limit=10&radius=80&access_token=${TOKEN}`
+          `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${lng},${lat}.json?layers=road&limit=10&radius=150&access_token=${TOKEN}`
         );
         const d=await r.json();
         if(!d.features) return;
         d.features.forEach(f=>{
           const cls=(f.properties?.class||'').toLowerCase();
-          if(SKIP_CLASSES.has(cls)) return;
-          if(!f.geometry?.coordinates) return;
+          if(SKIP_CLASSES.has(cls)||!f.geometry?.coordinates) return;
           const [flng,flat]=f.geometry.coordinates;
           if(hav(centerLat,centerLng,flat,flng)>SPAWN_R_M) return;
           const id=dotId(flat,flng);
@@ -1470,9 +1468,8 @@ async function buildRoadDotsFromAPI(centerLat, centerLng, silent=false){
         });
       }catch(e){}
     }));
-    if(!silent&&i%40===0){
+    if(!silent&&i%30===0)
       document.getElementById('dotLoader').textContent=`⬤ Loading… ${Math.round(i/points.length*100)}%`;
-    }
   }
 
   // Add landmarks
@@ -1483,116 +1480,13 @@ async function buildRoadDotsFromAPI(centerLat, centerLng, silent=false){
   });
 
   const total=Object.keys(DOTS).length;
-  console.log(`[WagaWaga] API scan: +${added} dots, ${total} total`);
+  console.log(`[WagaWaga] Loaded ${added} new dots (${total} total)`);
   if(!silent){
     document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
     setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
   } else if(added>0){
     showToast(ICO.teal,`+${added} new dots ahead!`);
   }
-  pushGL(); dotsReady=true;
-  if(playerLat!==null) updateNearby(playerLat,playerLng);
-}
-
-function buildRoadDots(centerLat, centerLng, silent=false){
-  if(!silent) document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
-  lastScanLat=centerLat; lastScanLng=centerLng;
-
-  let allFeatures = [];
-  try {
-    allFeatures = map.querySourceFeatures('composite', {sourceLayer:'road'});
-  } catch(e) {
-    console.warn('querySourceFeatures failed', e);
-  }
-
-  // Fallback: query rendered features across a grid of screen points
-  if(allFeatures.length < 10){
-    const W = map.getCanvas().width  / (window.devicePixelRatio||1);
-    const H = map.getCanvas().height / (window.devicePixelRatio||1);
-    const grid=[];
-    for(let x=0;x<=4;x++) for(let y=0;y<=6;y++) grid.push([W*x/4, H*y/6]);
-    const seen=new Set();
-    grid.forEach(pt=>{
-      try{
-        map.queryRenderedFeatures(pt).forEach(f=>{
-          const key=f.id+'_'+f.layer.id;
-          if(!seen.has(key)){seen.add(key);allFeatures.push(f);}
-        });
-      }catch(e){}
-    });
-  }
-
-  let added=0;
-  const newDotIds=[];
-
-  allFeatures.forEach(f=>{
-    if(!f.geometry) return;
-    const cls = (f.properties?.class || f.properties?.type || f.layer?.['source-layer'] || '').toLowerCase();
-    if(SKIP_CLASSES.has(cls)) return;
-
-    const geom = f.geometry;
-    const linesets =
-      geom.type==='LineString'      ? [geom.coordinates] :
-      geom.type==='MultiLineString' ? geom.coordinates   : [];
-
-    linesets.forEach(coords=>{
-      interpolateLine(coords).forEach(({lat,lng})=>{
-        if(hav(centerLat,centerLng,lat,lng) > SPAWN_R_M) return;
-        const id = dotId(lat,lng);
-        if(DOTS[id]) return;
-        const {type,pts} = dotType(id);
-        DOTS[id]={id,lat,lng,type,pts,label:null};
-        newDotIds.push(id);
-        added++;
-      });
-    });
-  });
-
-  // Add landmarks
-  LANDMARKS.forEach((lm,i)=>{
-    if(hav(centerLat,centerLng,lm.lat,lm.lng)>SPAWN_R_M) return;
-    const id=`lm_${i}`;
-    if(!DOTS[id]) DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name,emoji:lm.emoji||null};
-  });
-
-  // Merge pass on initial load only
-  if(!silent && newDotIds.length > 0){
-    const toRemove = new Set();
-    for(let i=0;i<newDotIds.length;i++){
-      const a = DOTS[newDotIds[i]];
-      if(!a || a.type==='landmark' || toRemove.has(a.id)) continue;
-      for(let j=i+1;j<newDotIds.length;j++){
-        const b = DOTS[newDotIds[j]];
-        if(!b || b.type==='landmark' || toRemove.has(b.id)) continue;
-        if(hav(a.lat,a.lng,b.lat,b.lng) < 20){
-          a.lat=(a.lat+b.lat)/2; a.lng=(a.lng+b.lng)/2;
-          if(b.type==='golden') a.type='golden';
-          toRemove.add(b.id);
-          added--;
-        }
-      }
-    }
-    toRemove.forEach(id=>delete DOTS[id]);
-  }
-
-  const total = Object.keys(DOTS).length;
-  console.log(`[WagaWaga] Tile scan: +${added} new, ${total} total`);
-
-  // If tile scan didn't cover the full radius, always fall back to Tilequery API
-  // Tile scan only covers ~500m viewport — API covers the full 8km radius
-  if(total < 2000){
-    console.log(`[WagaWaga] Only ${total} dots from tiles, using Tilequery API for full ${SPAWN_R_M/1000}km coverage…`);
-    buildRoadDotsFromAPI(centerLat, centerLng, silent);
-    return;
-  }
-
-  if(!silent){
-    document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
-    setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
-  } else if(added>0){
-    showToast(ICO.teal,`+${added} new dots ahead!`);
-  }
-
   pushGL(); dotsReady=true;
   if(playerLat!==null) updateNearby(playerLat,playerLng);
 }

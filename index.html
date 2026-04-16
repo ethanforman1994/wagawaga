@@ -1427,7 +1427,8 @@ const WALKABLE_CLASSES = new Set([
   'trunk','motorway_link' // included for coverage, won't hurt
 ]);
 
-const SKIP_CLASSES = new Set(['motorway','ferry','aerialway','golf']);
+// Track which grid cells have been scanned to avoid redundant rescans
+const SCANNED_CELLS = new Set();
 
 function buildRoadDots(centerLat, centerLng, silent=false){
   lastScanLat=centerLat; lastScanLng=centerLng;
@@ -1464,7 +1465,7 @@ function buildRoadDots(centerLat, centerLng, silent=false){
       interpolateLine(coords).forEach(({lat,lng})=>{
         if(hav(centerLat,centerLng,lat,lng)>SPAWN_R_M) return;
         const id=dotId(lat,lng);
-        if(DOTS[id]) return;
+        if(DOTS[id]) return; // already exists — skip
         const {type,pts}=dotType(id);
         DOTS[id]={id,lat,lng,type,pts,label:null};
         newDotIds.push(id);
@@ -1473,7 +1474,7 @@ function buildRoadDots(centerLat, centerLng, silent=false){
     });
   });
 
-  // Merge pass — collapse dots within 20m
+  // Merge pass — only run on new dots to avoid O(n²) over entire DOTS
   if(newDotIds.length>0){
     const toRemove=new Set();
     for(let i=0;i<newDotIds.length;i++){
@@ -1500,7 +1501,7 @@ function buildRoadDots(centerLat, centerLng, silent=false){
   });
 
   const total=Object.keys(DOTS).length;
-  console.log(`[WagaWaga] Scan: +${added} dots (${total} total)`);
+  console.log(`[WagaWaga] Scan: +${added} new dots (${total} total)`);
   if(!silent){
     document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
     setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
@@ -1651,101 +1652,87 @@ function checkCollect(lat,lng){
 function awardChallenge(id, bonus, msg){
   const c=S.challenges?.find(c=>c.id===id);
   if(!c||c.done) return;
-  c.done=true;
-  c.prog=c.total; // ensure progress shows complete
+  c.done=true; c.prog=c.total;
   S.todayDots+=bonus;S.weekDots+=bonus;S.allDots+=bonus;walkBonus+=bonus;
-  save(); // save immediately so bonus is persisted
+  save();
   showToast(ICO.star,`${msg} +${bonus.toLocaleString()} pts`);
 }
 
 function collect(d){
   if(S.eatenIds[d.id]) return;
   S.eatenIds[d.id]=true;
+
+  // Track first dot BEFORE incrementing allDots
+  const isFirstDot = S.allDots===0;
+
   S.todayDots+=d.pts;S.weekDots+=d.pts;S.allDots+=d.pts;S.walkedToday=true;
   S.collectedToday.unshift({pts:d.pts,lat:d.lat,lng:d.lng,type:d.type,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
   if(S.collectedToday.length>200) S.collectedToday.pop();
 
-  const now=new Date();
-  const hr=now.getHours();
+  const hr=new Date().getHours();
   const ch=id=>S.challenges?.find(c=>c.id===id);
 
   // c1 — Daily Grind: 50 dots today
   const c1=ch('c1');
-  if(c1&&!c1.done){
-    c1.prog=S.todayDots;
-    if(c1.prog>=c1.total) awardChallenge('c1',300,'Daily Grind complete!');
-  }
+  if(c1&&!c1.done){c1.prog=S.todayDots;if(c1.prog>=c1.total) awardChallenge('c1',300,'Daily Grind complete!');}
 
   // c_eb — Early Bird: 20 dots before 9am
-  const ceb=ch('c_eb');
-  if(ceb&&!ceb.done&&hr<9){
-    ceb.prog++;
-    if(ceb.prog>=ceb.total) awardChallenge('c_eb',200,'Early Bird complete!');
-  }
+  if(hr<9){const ceb=ch('c_eb');if(ceb&&!ceb.done){ceb.prog++;if(ceb.prog>=ceb.total) awardChallenge('c_eb',200,'Early Bird complete!');}}
 
   // c_no — Night Owl: 20 dots after 8pm
-  const cno=ch('c_no');
-  if(cno&&!cno.done&&hr>=20){
-    cno.prog++;
-    if(cno.prog>=cno.total) awardChallenge('c_no',200,'Night Owl complete!');
-  }
+  if(hr>=20){const cno=ch('c_no');if(cno&&!cno.done){cno.prog++;if(cno.prog>=cno.total) awardChallenge('c_no',200,'Night Owl complete!');}}
 
   // c_sr — Speed Run: 10 dots in 5 minutes
   const csr=ch('c_sr');
   if(csr&&!csr.done){
-    const now5=Date.now();
-    if(!S.speedRunStart||now5-S.speedRunStart>300000){
-      S.speedRunStart=now5;S.speedRunDots=0;
-    }
-    S.speedRunDots++;
-    csr.prog=S.speedRunDots;
+    const nowMs=Date.now();
+    if(!S.speedRunStart||nowMs-S.speedRunStart>300000){S.speedRunStart=nowMs;S.speedRunDots=0;}
+    S.speedRunDots++;csr.prog=S.speedRunDots;
     if(csr.prog>=csr.total) awardChallenge('c_sr',150,'Speed Run complete!');
   }
 
-  // c_leg — Legend: 1000 dots total allDots
-  const cleg=ch('c_leg');
-  if(cleg&&!cleg.done){
-    cleg.prog=S.allDots;
-    if(cleg.prog>=cleg.total) awardChallenge('c_leg',2000,'Legend complete!');
-  }
-
-  // c_fs — First Steps: first dot ever (only fires once, allDots===pts means first dot)
-  const cfs=ch('c_fs');
-  if(cfs&&!cfs.done&&S.allDots<=d.pts){
-    cfs.prog=1;
-    awardChallenge('c_fs',50,'First Steps complete!');
-  }
+  // c_fs — First Steps: very first dot ever
+  if(isFirstDot){const cfs=ch('c_fs');if(cfs&&!cfs.done){cfs.prog=1;awardChallenge('c_fs',50,'First Steps complete!');}}
 
   // c_100 — Century: 100 total dots
   const c100=ch('c_100');
-  if(c100&&!c100.done){
-    c100.prog=S.allDots;
-    if(c100.prog>=c100.total) awardChallenge('c_100',300,'Century complete!');
-  }
+  if(c100&&!c100.done){c100.prog=S.allDots;if(c100.prog>=c100.total) awardChallenge('c_100',300,'Century complete!');}
+
+  // c_leg — Legend: 1000 total dots
+  const cleg=ch('c_leg');
+  if(cleg&&!cleg.done){cleg.prog=S.allDots;if(cleg.prog>=cleg.total) awardChallenge('c_leg',2000,'Legend complete!');}
 
   // c_fire — On Fire: 7 day streak
   const cfire=ch('c_fire');
-  if(cfire&&!cfire.done){
-    cfire.prog=S.streak;
-    if(cfire.prog>=cfire.total) awardChallenge('c_fire',500,'On Fire complete!');
-  }
+  if(cfire&&!cfire.done){cfire.prog=S.streak;if(cfire.prog>=cfire.total) awardChallenge('c_fire',500,'On Fire complete!');}
 
   // c3 — Explorer: unique neighborhoods (tracked in pushTerritoryDot)
   const c3=ch('c3');
-  if(c3) c3.prog=(S.neighborhoodsThisWeek||[]).length;
+  if(c3&&!c3.done) c3.prog=(S.neighborhoodsThisWeek||[]).length;
 
-  // c_con — Consistent: days walked (tracked at midnight)
+  // c_con — Consistent: days walked this week (tracked at midnight)
   const ccon=ch('c_con');
-  if(ccon) ccon.prog=S.daysWalkedThisWeek||0;
+  if(ccon&&!ccon.done) ccon.prog=S.daysWalkedThisWeek||0;
 
-  // golden dot challenges
+  // c_td — Top Dog: #1 on today's leaderboard
+  const ctd=ch('c_td');
+  if(ctd&&!ctd.done&&window._liveRows?.length>0){
+    const sorted=[...window._liveRows].sort((a,b)=>b.score-a.score);
+    if(sorted[0]?.you){ctd.prog=1;awardChallenge('c_td',750,'Top Dog! You\'re #1 today!');}
+  }
+
+  // c_tk — Territory King: own 3+ territories this month
+  const ctk=ch('c_tk');
+  if(ctk&&!ctk.done){
+    ctk.prog=(S.neighborhoodsThisWeek||[]).length;
+    if(ctk.prog>=ctk.total) awardChallenge('c_tk',2000,'Territory King complete!');
+  }
+
+  // Golden dot challenges
   if(d.type==='golden'){
     if(tracking) walkGolden++;
     const c4=ch('c4');
-    if(c4&&!c4.done){
-      c4.prog++;
-      if(c4.prog>=c4.total) awardChallenge('c4',1500,'Golden Hunter complete!');
-    }
+    if(c4&&!c4.done){c4.prog++;if(c4.prog>=c4.total) awardChallenge('c4',1500,'Golden Hunter complete!');}
   }
 
   save();refreshGL();updateUI();renderCh();updateTrail();
@@ -1869,16 +1856,11 @@ function startWatch(){
       startWatch._geo=Date.now();geoName(lat,lng);
     }
 
-    // Auto-rescan dots when walked 400m from last scan
+    // Auto-rescan dots when walked 200m from last scan
     if(lastScanLat!==null && hav(lat,lng,lastScanLat,lastScanLng) > RESCAN_DIST_M){
       lastScanLat=lat; lastScanLng=lng;
-      if(map){
-        map.easeTo({center:[lng,lat],zoom:15,duration:500});
-        setTimeout(()=>{
-          map.easeTo({center:[lng,lat],zoom:16,duration:300});
-          setTimeout(()=>buildRoadDots(lat,lng,true), 1500);
-        },600);
-      }
+      // Scan current viewport tiles directly — no map movement needed
+      setTimeout(()=>buildRoadDots(lat,lng,true), 500);
     }
   },()=>setGPS('error','GPS lost'),{
     enableHighAccuracy:true,

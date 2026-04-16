@@ -1415,16 +1415,77 @@ const WALKABLE_CLASSES = new Set([
 
 const SKIP_CLASSES = new Set(['motorway','ferry','aerialway','golf']);
 
+// ── Tilequery API fallback — fetches road data server-side ───
+async function buildRoadDotsFromAPI(centerLat, centerLng, silent=false){
+  if(!silent) document.getElementById('dotLoader').textContent='⬤ Fetching road data…';
+
+  const GRID_LAT = 0.003; // ~330m spacing
+  const GRID_LNG = 0.004;
+  const radiusDeg = SPAWN_R_M / 111320;
+  const points = [];
+
+  for(let dlat=-radiusDeg; dlat<=radiusDeg; dlat+=GRID_LAT){
+    for(let dlng=-radiusDeg; dlng<=radiusDeg; dlng+=GRID_LNG){
+      const lat=centerLat+dlat, lng=centerLng+dlng;
+      if(hav(centerLat,centerLng,lat,lng) <= SPAWN_R_M) points.push({lat,lng});
+    }
+  }
+
+  let added=0;
+  const BATCH=8;
+  for(let i=0;i<points.length;i+=BATCH){
+    await Promise.all(points.slice(i,i+BATCH).map(async ({lat,lng})=>{
+      try{
+        const r=await fetch(
+          `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${lng},${lat}.json?layers=road&limit=10&radius=80&access_token=${TOKEN}`
+        );
+        const d=await r.json();
+        if(!d.features) return;
+        d.features.forEach(f=>{
+          const cls=(f.properties?.class||'').toLowerCase();
+          if(SKIP_CLASSES.has(cls)) return;
+          if(!f.geometry?.coordinates) return;
+          const [flng,flat]=f.geometry.coordinates;
+          if(hav(centerLat,centerLng,flat,flng)>SPAWN_R_M) return;
+          const id=dotId(flat,flng);
+          if(DOTS[id]) return;
+          const {type,pts}=dotType(id);
+          DOTS[id]={id,lat:flat,lng:flng,type,pts,label:null};
+          added++;
+        });
+      }catch(e){}
+    }));
+    if(!silent&&i%40===0){
+      document.getElementById('dotLoader').textContent=`⬤ Loading… ${Math.round(i/points.length*100)}%`;
+    }
+  }
+
+  // Add landmarks
+  LANDMARKS.forEach((lm,i)=>{
+    if(hav(centerLat,centerLng,lm.lat,lm.lng)>SPAWN_R_M) return;
+    const id=`lm_${i}`;
+    if(!DOTS[id]) DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name,emoji:lm.emoji||null};
+  });
+
+  const total=Object.keys(DOTS).length;
+  console.log(`[WagaWaga] API scan: +${added} dots, ${total} total`);
+  if(!silent){
+    document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
+    setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
+  } else if(added>0){
+    showToast(ICO.teal,`+${added} new dots ahead!`);
+  }
+  pushGL(); dotsReady=true;
+  if(playerLat!==null) updateNearby(playerLat,playerLng);
+}
+
 function buildRoadDots(centerLat, centerLng, silent=false){
   if(!silent) document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
   lastScanLat=centerLat; lastScanLng=centerLng;
 
-  const sourceId  = 'composite';
-  const roadLayer = 'road';
   let allFeatures = [];
-
   try {
-    allFeatures = map.querySourceFeatures(sourceId, {sourceLayer: roadLayer});
+    allFeatures = map.querySourceFeatures('composite', {sourceLayer:'road'});
   } catch(e) {
     console.warn('querySourceFeatures failed', e);
   }
@@ -1447,7 +1508,7 @@ function buildRoadDots(centerLat, centerLng, silent=false){
   }
 
   let added=0;
-  const newDotIds=[]; // track newly added dots for merge pass
+  const newDotIds=[];
 
   allFeatures.forEach(f=>{
     if(!f.geometry) return;
@@ -1472,14 +1533,14 @@ function buildRoadDots(centerLat, centerLng, silent=false){
     });
   });
 
-  // Add landmark dots within radius
+  // Add landmarks
   LANDMARKS.forEach((lm,i)=>{
     if(hav(centerLat,centerLng,lm.lat,lm.lng)>SPAWN_R_M) return;
     const id=`lm_${i}`;
     if(!DOTS[id]) DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name,emoji:lm.emoji||null};
   });
 
-  // Merge pass — only on initial load to avoid O(n²) freeze on rescans
+  // Merge pass on initial load only
   if(!silent && newDotIds.length > 0){
     const toRemove = new Set();
     for(let i=0;i<newDotIds.length;i++){
@@ -1500,7 +1561,16 @@ function buildRoadDots(centerLat, centerLng, silent=false){
   }
 
   const total = Object.keys(DOTS).length;
-  console.log(`[WagaWaga] Dots: +${added} new, ${total} total`);
+  console.log(`[WagaWaga] Tile scan: +${added} new, ${total} total`);
+
+  // If tile scan didn't cover the full radius, always fall back to Tilequery API
+  // Tile scan only covers ~500m viewport — API covers the full 8km radius
+  if(total < 2000){
+    console.log(`[WagaWaga] Only ${total} dots from tiles, using Tilequery API for full ${SPAWN_R_M/1000}km coverage…`);
+    buildRoadDotsFromAPI(centerLat, centerLng, silent);
+    return;
+  }
+
   if(!silent){
     document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
     setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
@@ -1508,8 +1578,7 @@ function buildRoadDots(centerLat, centerLng, silent=false){
     showToast(ICO.teal,`+${added} new dots ahead!`);
   }
 
-  pushGL();
-  dotsReady=true;
+  pushGL(); dotsReady=true;
   if(playerLat!==null) updateNearby(playerLat,playerLng);
 }
 
@@ -1869,49 +1938,13 @@ let walkGolden = 0;
 let walkBonus = 0;
 let isProgrammaticMove = false;
 
-// ── GPS smoothing state ───────────────────────────────────────
-const GPS_HISTORY = [];       // last N positions for smoothing
-const GPS_HISTORY_MAX = 4;    // average over 4 readings
-const MAX_WALK_SPEED = 12;    // km/h — anything faster is a jump/vehicle
-const MIN_ACCURACY   = 50;    // ignore readings worse than 50m
-
-function smoothedPosition(lat, lng){
-  GPS_HISTORY.push({lat,lng});
-  if(GPS_HISTORY.length > GPS_HISTORY_MAX) GPS_HISTORY.shift();
-  // Weighted average — more recent = more weight
-  let wLat=0,wLng=0,wSum=0;
-  GPS_HISTORY.forEach((p,i)=>{
-    const w=i+1; // weight: older=1, newer=GPS_HISTORY_MAX
-    wLat+=p.lat*w; wLng+=p.lng*w; wSum+=w;
-  });
-  return {lat:wLat/wSum, lng:wLng/wSum};
-}
-
-function isPositionJump(lat, lng){
-  if(GPS_HISTORY.length < 2) return false;
-  const prev = GPS_HISTORY[GPS_HISTORY.length-1];
-  const dist = hav(prev.lat, prev.lng, lat, lng); // metres
-  const elapsed = 2; // assume ~2s between readings
-  const speedKmh = (dist / elapsed) * 3.6;
-  return speedKmh > MAX_WALK_SPEED;
-}
-
 function startWatch(){
   if(watchId!==null) return;
   watchId=navigator.geolocation.watchPosition(pos=>{
-    const{latitude:rawLat, longitude:rawLng, accuracy:acc}=pos.coords;
+    const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
 
-    // 1. Accuracy filter — ignore very noisy readings
-    if(acc > MIN_ACCURACY) return;
-
-    // 2. Speed filter — ignore position jumps faster than walking
-    if(isPositionJump(rawLat, rawLng)){
-      console.log('[WagaWaga] GPS jump detected, ignoring position');
-      return;
-    }
-
-    // 3. Smoothing — weighted average of recent positions
-    const {lat, lng} = smoothedPosition(rawLat, rawLng);
+    // Ignore very noisy readings
+    if(acc > 65) return;
 
     setGPS('active',`±${Math.round(acc)}m`);
     playerLat=lat; playerLng=lng;
@@ -1924,8 +1957,8 @@ function startWatch(){
     // Auto-follow map
     if(mapFollowing && map){
       isProgrammaticMove=true;
-      map.easeTo({center:[lng,lat],duration:800,essential:true});
-      setTimeout(()=>{ isProgrammaticMove=false; },900);
+      map.easeTo({center:[lng,lat],duration:300,essential:true});
+      setTimeout(()=>{ isProgrammaticMove=false; },400);
     }
 
     if(!startWatch._geo||Date.now()-startWatch._geo>12000){

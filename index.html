@@ -1590,10 +1590,17 @@ function initMap(lat,lng){
     el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${getEmoji().emoji}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 
-    map.once('idle',()=>{
+    // Fire dot scan — use idle if not yet reached, else fire directly
+    let scanned=false;
+    function doScan(){
+      if(scanned) return;
+      scanned=true;
       buildRoadDots(lat,lng);
       updateTrail();
-    });
+    }
+    map.once('idle', doScan);
+    // Safety fallback — if idle never fires, scan after 3 seconds
+    setTimeout(doScan, 3000);
 
     updateUI();renderLB('day');renderTerr();renderCh();renderRecap();
   });

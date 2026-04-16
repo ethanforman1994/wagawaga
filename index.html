@@ -1360,8 +1360,9 @@ mapboxgl.accessToken = TOKEN;
 let map=null, playerMarker=null, playerLat=null, playerLng=null;
 let tracking=false, watchId=null, ghostOn=false, ghostPts=[];
 let dotsReady=false;
-let lastScanLat=null, lastScanLng=null;  // origin of last road scan
-const RESCAN_DIST_M = 200;               // trigger rescan after walking this far
+let lastScanLat=null, lastScanLng=null;
+const RESCAN_DIST_M = 400;
+let isRescanning=false; // lock to prevent concurrent rescans
 
 /* Dot store: id → {id,lat,lng,type,pts,label} */
 const DOTS = {};
@@ -1608,8 +1609,22 @@ function initMap(lat,lng){
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 
     // Wait for map to be idle then scan road dots
-    map.once('idle',()=>{
+    // Retry up to 3 times with increasing delays if scan returns nothing
+    let attempts=0;
+    function tryScan(){
+      attempts++;
       buildRoadDots(lat,lng);
+      setTimeout(()=>{
+        if(Object.keys(DOTS).length<5 && attempts<3){
+          console.log(`[WagaWaga] No dots found, retrying (${attempts}/3)…`);
+          document.getElementById('dotLoader').textContent='⬤ Retrying scan…';
+          document.getElementById('dotLoader').classList.remove('gone');
+          setTimeout(tryScan, 1500);
+        }
+      },2000);
+    }
+    map.once('idle',()=>{
+      setTimeout(tryScan, 500); // small delay to let tiles fully render
       updateTrail();
     });
 
@@ -1857,10 +1872,13 @@ function startWatch(){
     }
 
     // Auto-rescan dots when walked 200m from last scan
-    if(lastScanLat!==null && hav(lat,lng,lastScanLat,lastScanLng) > RESCAN_DIST_M){
+    if(!isRescanning && lastScanLat!==null && hav(lat,lng,lastScanLat,lastScanLng) > RESCAN_DIST_M){
       lastScanLat=lat; lastScanLng=lng;
-      // Scan current viewport tiles directly — no map movement needed
-      setTimeout(()=>buildRoadDots(lat,lng,true), 500);
+      isRescanning=true;
+      setTimeout(()=>{
+        buildRoadDots(lat,lng,true);
+        isRescanning=false;
+      }, 500);
     }
   },()=>setGPS('error','GPS lost'),{
     enableHighAccuracy:true,

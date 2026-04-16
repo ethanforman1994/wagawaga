@@ -796,7 +796,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 const TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
 const COLLECT_M  = 18;      // metres to collect a dot
 const DOT_STEP_M = 15;      // metres between dots along road (Pac-Man density)
-const SPAWN_R_M  = 3000;    // pre-load radius in metres
+const SPAWN_R_M  = 2000;    // pre-load radius in metres
 const GOLD_PCT   = 4;       // % chance a dot is golden
 
 /* ─── STORAGE ────────────────────────────────────────────── */
@@ -1429,47 +1429,98 @@ const WALKABLE_CLASSES = new Set([
 
 const SKIP_CLASSES = new Set(['motorway','ferry','aerialway','golf']);
 
-// ── Tilequery API — fetches road dots server-side anywhere ────
 async function buildRoadDots(centerLat, centerLng, silent=false){
   lastScanLat=centerLat; lastScanLng=centerLng;
-  if(!silent) document.getElementById('dotLoader').textContent='⬤ Loading dots…';
+  if(!silent) document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
 
-  const GRID_LAT=0.0018, GRID_LNG=0.0022; // ~200m spacing
+  // Sweep the map across a grid of positions covering the full radius
+  // At each position, wait for tiles to load then scan road geometry
+  const SWEEP_STEP=0.008; // ~900m steps — covers 2km radius in a 3x3 grid
   const radiusDeg=SPAWN_R_M/111320;
-  const points=[];
+  const positions=[];
 
-  for(let dlat=-radiusDeg;dlat<=radiusDeg;dlat+=GRID_LAT)
-    for(let dlng=-radiusDeg;dlng<=radiusDeg;dlng+=GRID_LNG){
+  for(let dlat=-radiusDeg;dlat<=radiusDeg;dlat+=SWEEP_STEP)
+    for(let dlng=-radiusDeg;dlng<=radiusDeg;dlng+=SWEEP_STEP){
       const lat=centerLat+dlat, lng=centerLng+dlng;
-      if(hav(centerLat,centerLng,lat,lng)<=SPAWN_R_M) points.push({lat,lng});
+      if(hav(centerLat,centerLng,lat,lng)<=SPAWN_R_M) positions.push({lat,lng});
     }
 
-  let added=0;
-  const BATCH=10;
+  // Always include center
+  positions.unshift({lat:centerLat,lng:centerLng});
 
-  for(let i=0;i<points.length;i+=BATCH){
-    await Promise.all(points.slice(i,i+BATCH).map(async ({lat,lng})=>{
-      try{
-        const r=await fetch(
-          `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${lng},${lat}.json?layers=road&limit=10&radius=150&access_token=${TOKEN}`
-        );
-        const d=await r.json();
-        if(!d.features) return;
-        d.features.forEach(f=>{
-          const cls=(f.properties?.class||'').toLowerCase();
-          if(SKIP_CLASSES.has(cls)||!f.geometry?.coordinates) return;
-          const [flng,flat]=f.geometry.coordinates;
-          if(hav(centerLat,centerLng,flat,flng)>SPAWN_R_M) return;
-          const id=dotId(flat,flng);
+  let added=0;
+  const allNewIds=[];
+
+  function scanCurrentTiles(){
+    let allFeatures=[];
+    try{ allFeatures=map.querySourceFeatures('composite',{sourceLayer:'road'}); }
+    catch(e){}
+    if(allFeatures.length<10){
+      const W=map.getCanvas().width/(window.devicePixelRatio||1);
+      const H=map.getCanvas().height/(window.devicePixelRatio||1);
+      const seen=new Set();
+      for(let x=0;x<=3;x++) for(let y=0;y<=4;y++){
+        try{
+          map.queryRenderedFeatures([W*x/3,H*y/4]).forEach(f=>{
+            const key=f.id+'_'+f.layer.id;
+            if(!seen.has(key)){seen.add(key);allFeatures.push(f);}
+          });
+        }catch(e){}
+      }
+    }
+    allFeatures.forEach(f=>{
+      if(!f.geometry) return;
+      const cls=(f.properties?.class||f.properties?.type||'').toLowerCase();
+      if(SKIP_CLASSES.has(cls)) return;
+      const linesets=f.geometry.type==='LineString'?[f.geometry.coordinates]:
+                     f.geometry.type==='MultiLineString'?f.geometry.coordinates:[];
+      linesets.forEach(coords=>{
+        interpolateLine(coords).forEach(({lat,lng})=>{
+          if(hav(centerLat,centerLng,lat,lng)>SPAWN_R_M) return;
+          const id=dotId(lat,lng);
           if(DOTS[id]) return;
           const {type,pts}=dotType(id);
-          DOTS[id]={id,lat:flat,lng:flng,type,pts,label:null};
+          DOTS[id]={id,lat,lng,type,pts,label:null};
+          allNewIds.push(id);
           added++;
         });
-      }catch(e){}
-    }));
-    if(!silent&&i%30===0)
-      document.getElementById('dotLoader').textContent=`⬤ Loading… ${Math.round(i/points.length*100)}%`;
+      });
+    });
+  }
+
+  // Scan each position
+  for(let i=0;i<positions.length;i++){
+    const {lat,lng}=positions[i];
+    // Move map to position and wait for tiles
+    await new Promise(res=>{
+      map.once('idle',()=>{ scanCurrentTiles(); res(); });
+      map.easeTo({center:[lng,lat],zoom:15,duration:200});
+    });
+    if(!silent)
+      document.getElementById('dotLoader').textContent=`⬤ Scanning… ${Math.round((i+1)/positions.length*100)}%`;
+    pushGL(); // show dots as we go
+  }
+
+  // Return map to player position
+  map.easeTo({center:[playerLng||centerLng,playerLat||centerLat],zoom:16,duration:400});
+
+  // Merge pass — collapse duplicates within 20m
+  if(allNewIds.length>0){
+    const toRemove=new Set();
+    for(let i=0;i<allNewIds.length;i++){
+      const a=DOTS[allNewIds[i]];
+      if(!a||a.type==='landmark'||toRemove.has(a.id)) continue;
+      for(let j=i+1;j<allNewIds.length;j++){
+        const b=DOTS[allNewIds[j]];
+        if(!b||b.type==='landmark'||toRemove.has(b.id)) continue;
+        if(hav(a.lat,a.lng,b.lat,b.lng)<20){
+          a.lat=(a.lat+b.lat)/2; a.lng=(a.lng+b.lng)/2;
+          if(b.type==='golden') a.type='golden';
+          toRemove.add(b.id); added--;
+        }
+      }
+    }
+    toRemove.forEach(id=>delete DOTS[id]);
   }
 
   // Add landmarks
@@ -1480,7 +1531,7 @@ async function buildRoadDots(centerLat, centerLng, silent=false){
   });
 
   const total=Object.keys(DOTS).length;
-  console.log(`[WagaWaga] Loaded ${added} new dots (${total} total)`);
+  console.log(`[WagaWaga] Sweep scan: +${added} dots (${total} total)`);
   if(!silent){
     document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
     setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);

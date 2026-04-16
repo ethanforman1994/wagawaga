@@ -795,7 +795,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 /* ─── CONFIG ─────────────────────────────────────────────── */
 const TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
 const COLLECT_M  = 18;      // metres to collect a dot
-const DOT_STEP_M = 15;      // metres between dots along road (Pac-Man density)
+const DOT_STEP_M = 20;      // metres between dots along road
 const SPAWN_R_M  = 2000;    // pre-load radius in metres
 const GOLD_PCT   = 4;       // % chance a dot is golden
 
@@ -1622,13 +1622,8 @@ function initMap(lat,lng){
     let scanned=false;
     function doScan(){
       if(scanned) return;
-      // Log available source layers to find correct name
       let features=[];
       try{
-        const style=map.getStyle();
-        const sources=Object.keys(style.sources||{});
-        console.log('[WagaWaga] Available sources:',sources);
-        // Try multiple possible source/layer combinations
         const combos=[
           {source:'composite',layer:'road'},
           {source:'mapbox',layer:'road'},
@@ -1637,26 +1632,18 @@ function initMap(lat,lng){
         for(const {source,layer} of combos){
           try{
             const f=map.querySourceFeatures(source,{sourceLayer:layer});
-            console.log(`[WagaWaga] ${source}/${layer}: ${f.length} features`);
             if(f.length>5){features=f;break;}
           }catch(e){}
         }
-        // Fallback: queryRenderedFeatures with no filter gets everything
         if(features.length<5){
           const W=map.getCanvas().width/(window.devicePixelRatio||1);
           const H=map.getCanvas().height/(window.devicePixelRatio||1);
           const all=map.queryRenderedFeatures([[0,0],[W,H]]);
-          console.log('[WagaWaga] queryRenderedFeatures total:',all.length);
-          features=all.filter(f=>{
-            const sl=(f.sourceLayer||'').toLowerCase();
-            return sl==='road'||sl==='roads';
-          });
-          console.log('[WagaWaga] road features from rendered:',features.length);
+          features=all.filter(f=>(f.sourceLayer||'').toLowerCase().includes('road'));
         }
-      }catch(e){ console.warn('[WagaWaga] source query error',e); }
+      }catch(e){}
 
       if(features.length<5){
-        console.log('[WagaWaga] Not enough features yet, retrying in 2s…');
         setTimeout(doScan,2000);
         return;
       }

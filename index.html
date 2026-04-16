@@ -1608,25 +1608,13 @@ function initMap(lat,lng){
     el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${getEmoji().emoji}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 
-    // Wait for map to be idle then scan road dots
-    // Retry up to 3 times with increasing delays if scan returns nothing
-    let attempts=0;
-    function tryScan(){
-      attempts++;
-      buildRoadDots(lat,lng);
-      setTimeout(()=>{
-        if(Object.keys(DOTS).length<5 && attempts<3){
-          console.log(`[WagaWaga] No dots found, retrying (${attempts}/3)…`);
-          document.getElementById('dotLoader').textContent='⬤ Retrying scan…';
-          document.getElementById('dotLoader').classList.remove('gone');
-          setTimeout(tryScan, 1500);
-        }
-      },2000);
+    // Scan dots once map is idle — use setTimeout as safety fallback
+    function doScan(){ buildRoadDots(lat,lng); updateTrail(); }
+    if(map.isStyleLoaded() && !map.isMoving()){
+      setTimeout(doScan, 800);
+    } else {
+      map.once('idle', ()=>setTimeout(doScan, 300));
     }
-    map.once('idle',()=>{
-      setTimeout(tryScan, 500); // small delay to let tiles fully render
-      updateTrail();
-    });
 
     updateUI();renderLB('day');renderTerr();renderCh();renderRecap();
   });

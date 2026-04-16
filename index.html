@@ -1425,20 +1425,21 @@ const WALKABLE_CLASSES = new Set([
   'street','street_limited','secondary','tertiary','primary',
   'path','pedestrian','footway','track','steps','cycleway',
   'residential','living_street','service','unclassified',
-  'trunk','motorway_link' // included for coverage, won't hurt
+  'trunk','motorway_link'
 ]);
 
-// Track which grid cells have been scanned to avoid redundant rescans
-const SCANNED_CELLS = new Set();
+const SKIP_CLASSES = new Set(['motorway','ferry','aerialway','golf']);
 
 function buildRoadDots(centerLat, centerLng, silent=false){
   lastScanLat=centerLat; lastScanLng=centerLng;
   if(!silent) document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
 
+  // Query road features from loaded tiles
   let allFeatures=[];
   try{ allFeatures=map.querySourceFeatures('composite',{sourceLayer:'road'}); }
-  catch(e){ console.warn('querySourceFeatures failed',e); }
+  catch(e){}
 
+  // Fallback: grid of screen points
   if(allFeatures.length<10){
     const W=map.getCanvas().width/(window.devicePixelRatio||1);
     const H=map.getCanvas().height/(window.devicePixelRatio||1);
@@ -1454,7 +1455,6 @@ function buildRoadDots(centerLat, centerLng, silent=false){
   }
 
   let added=0;
-  const newDotIds=[];
 
   allFeatures.forEach(f=>{
     if(!f.geometry) return;
@@ -1466,33 +1466,13 @@ function buildRoadDots(centerLat, centerLng, silent=false){
       interpolateLine(coords).forEach(({lat,lng})=>{
         if(hav(centerLat,centerLng,lat,lng)>SPAWN_R_M) return;
         const id=dotId(lat,lng);
-        if(DOTS[id]) return; // already exists — skip
+        if(DOTS[id]) return; // dedup — skip if already exists
         const {type,pts}=dotType(id);
         DOTS[id]={id,lat,lng,type,pts,label:null};
-        newDotIds.push(id);
         added++;
       });
     });
   });
-
-  // Merge pass — only run on new dots to avoid O(n²) over entire DOTS
-  if(newDotIds.length>0){
-    const toRemove=new Set();
-    for(let i=0;i<newDotIds.length;i++){
-      const a=DOTS[newDotIds[i]];
-      if(!a||a.type==='landmark'||toRemove.has(a.id)) continue;
-      for(let j=i+1;j<newDotIds.length;j++){
-        const b=DOTS[newDotIds[j]];
-        if(!b||b.type==='landmark'||toRemove.has(b.id)) continue;
-        if(hav(a.lat,a.lng,b.lat,b.lng)<20){
-          a.lat=(a.lat+b.lat)/2; a.lng=(a.lng+b.lng)/2;
-          if(b.type==='golden') a.type='golden';
-          toRemove.add(b.id); added--;
-        }
-      }
-    }
-    toRemove.forEach(id=>delete DOTS[id]);
-  }
 
   // Landmarks
   LANDMARKS.forEach((lm,i)=>{
@@ -1502,14 +1482,17 @@ function buildRoadDots(centerLat, centerLng, silent=false){
   });
 
   const total=Object.keys(DOTS).length;
-  console.log(`[WagaWaga] Scan: +${added} new dots (${total} total)`);
+  console.log(`[WagaWaga] +${added} new dots (${total} total)`);
+
   if(!silent){
     document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
     setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
   } else if(added>0){
     showToast(ICO.teal,`+${added} new dots ahead!`);
   }
-  pushGL(); dotsReady=true;
+
+  pushGL();
+  dotsReady=true;
   if(playerLat!==null) updateNearby(playerLat,playerLng);
 }
 
@@ -1603,18 +1586,14 @@ function initMap(lat,lng){
   });
 
   map.on('load',()=>{
-    // Player marker
     const el=document.createElement('div');el.className='player-el';
     el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${getEmoji().emoji}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 
-    // Scan dots once map is idle — use setTimeout as safety fallback
-    function doScan(){ buildRoadDots(lat,lng); updateTrail(); }
-    if(map.isStyleLoaded() && !map.isMoving()){
-      setTimeout(doScan, 800);
-    } else {
-      map.once('idle', ()=>setTimeout(doScan, 300));
-    }
+    map.once('idle',()=>{
+      buildRoadDots(lat,lng);
+      updateTrail();
+    });
 
     updateUI();renderLB('day');renderTerr();renderCh();renderRecap();
   });
@@ -1859,14 +1838,11 @@ function startWatch(){
       startWatch._geo=Date.now();geoName(lat,lng);
     }
 
-    // Auto-rescan dots when walked 200m from last scan
-    if(!isRescanning && lastScanLat!==null && hav(lat,lng,lastScanLat,lastScanLng) > RESCAN_DIST_M){
+    // Rescan dots every 400m walked
+    if(!isRescanning && lastScanLat!==null && hav(lat,lng,lastScanLat,lastScanLng)>RESCAN_DIST_M){
       lastScanLat=lat; lastScanLng=lng;
       isRescanning=true;
-      setTimeout(()=>{
-        buildRoadDots(lat,lng,true);
-        isRescanning=false;
-      }, 500);
+      setTimeout(()=>{ buildRoadDots(lat,lng,true); isRescanning=false; },800);
     }
   },()=>setGPS('error','GPS lost'),{
     enableHighAccuracy:true,

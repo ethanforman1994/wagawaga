@@ -15,7 +15,7 @@
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-import { getFirestore, doc, setDoc, getDoc, getDocs, collection, query, where, orderBy, limit, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getFirestore, doc, setDoc, getDoc, getDocs, collection, query, where, orderBy, limit, onSnapshot, serverTimestamp, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyDb0zMOhz9EXmODWjLQPbtKIQ1agiXuwMA",
@@ -31,7 +31,7 @@ const fbApp = initializeApp(firebaseConfig);
 const auth  = getAuth(fbApp);
 const db    = getFirestore(fbApp);
 window._fbDb = db;
-window._fbFirestore = {getDocs, query, collection, where, orderBy, limit, doc, setDoc, getDoc, serverTimestamp, onSnapshot};
+window._fbFirestore = {getDocs, query, collection, where, orderBy, limit, doc, setDoc, getDoc, serverTimestamp, onSnapshot, writeBatch};
 
 let fbUid = null;
 let confirmationResult = null;
@@ -582,7 +582,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
             <svg width="11" height="14" viewBox="0 0 13 16" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round"><path d="M6.5 14.5c2.5 0 4.5-1.8 4.5-4.5 0-1.8-1-3-2-4-.3 1.2-1 2-1.8 2.2C7.8 6.5 7 4.5 5.5 3c0 2-1.5 3.2-2 4.5-.3.8-.5 1.6-.5 2.5 0 2.7 2 4.5 3.5 4.5z"/></svg>
             <span id="streakVal">0</span>
           </div>
-          <button class="av-btn" id="avBtn">?</button>
+          <button class="av-btn" id="avBtn" onclick="openProfile()">?</button>
         </div>
       </div>
     </div>
@@ -630,6 +630,31 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
   </div>
 
   <div class="toast" id="toast"><div class="toast-icon" id="tIcon"></div><div id="tMsg"></div></div>
+
+  <!-- Profile Edit Modal -->
+  <div class="walk-summary" id="profileModal">
+    <div class="ws-card">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+        <div style="font-size:36px" id="profileEmoji">🐣</div>
+        <div>
+          <div class="ws-title">Your Profile</div>
+          <div class="ws-sub" id="profileTierLabel">Hatchling</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:16px">Emoji is earned by your streak — keep walking to level up!</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
+        <label style="font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--text2)">Display Name</label>
+        <input id="profileNameInput" type="text" maxlength="20"
+          style="background:rgba(255,255,255,0.06);border:1px solid var(--border2);border-radius:14px;padding:14px 16px;font-family:'Outfit',sans-serif;font-size:16px;color:var(--text);outline:none;-webkit-appearance:none;width:100%"
+          placeholder="Your name on the leaderboard"/>
+        <div id="profileError" style="font-size:12px;color:var(--red);display:none"></div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button onclick="closeProfile()" style="flex:1;padding:14px;border-radius:14px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-family:'Outfit',sans-serif;font-weight:600;font-size:14px;cursor:pointer">Cancel</button>
+        <button onclick="saveProfile()" style="flex:2;padding:14px;border-radius:14px;border:none;background:var(--gold);color:#1a1200;font-family:'Outfit',sans-serif;font-weight:700;font-size:14px;cursor:pointer">Save Name</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Walk Summary Modal -->
   <div class="walk-summary" id="walkSummary">
@@ -757,21 +782,27 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 const TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
 const COLLECT_M  = 18;      // metres to collect a dot
 const DOT_STEP_M = 15;      // metres between dots along road (Pac-Man density)
-const SPAWN_R_M  = 4000;    // pre-load radius in metres
+const SPAWN_R_M  = 8000;    // pre-load radius in metres
 const GOLD_PCT   = 4;       // % chance a dot is golden
 
 /* ─── STORAGE ────────────────────────────────────────────── */
 const SK = 'wagawaga';
-const toDay = () => new Date().toISOString().split('T')[0];
+const toDay = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
 
 function blank(){
   return{
     day:toDay(),todayDots:0,weekDots:0,allDots:0,streak:0,walkedToday:false,
     eatenIds:{},collectedToday:[],weekHistory:[],initials:'?',
-    neighborhoodsThisWeek:[],  // for Explorer challenge
-    daysWalkedThisWeek:0,       // for Consistent challenge
-    speedRunStart:null,         // for Speed Run challenge
-    speedRunDots:0,             // dots collected during speed run window
+    todayMins:0,    // total minutes walked today
+    weekMins:0,     // total minutes walked this week
+    allMins:0,      // total minutes walked all time
+    neighborhoodsThisWeek:[],
+    daysWalkedThisWeek:0,
+    speedRunStart:null,
+    speedRunDots:0,
     challenges:[
       {id:'c1',    prog:0,total:50,   done:false},
       {id:'c_eb',  prog:0,total:20,   done:false},
@@ -1041,7 +1072,7 @@ async function initBattle(){
 
   // Generate dots if none exist yet for this week
   const existing=await getDocs(dotsRef);
-  if(existing.size===0 && playerLat!==null){
+  if(existing.size===0){
     generateBattleDots(wid);
   }
 
@@ -1049,28 +1080,87 @@ async function initBattle(){
   setInterval(updateBattleTimer,60000);
 }
 
-// ── Generate shared dots for the week ────────────────────────
+// ── Manhattan bounding box ────────────────────────────────────
+const MANHATTAN = {
+  minLat: 40.6980, maxLat: 40.8820,
+  minLng: -74.0200, maxLng: -73.9070
+};
+
+// ── Generate shared dots for the week across all of Manhattan ─
 async function generateBattleDots(wid){
-  if(!map||!window._fbFirestore) return;
-  const {doc,setDoc,collection}=window._fbFirestore;
-  document.getElementById('battleSub').textContent='Generating weekly board…';
+  if(!window._fbFirestore) return;
+  const {doc,writeBatch,collection}=window._fbFirestore;
+  const sub=document.getElementById('battleSub');
+  if(sub) sub.textContent='Building Manhattan board…';
 
-  // Use existing road dots as source — sample every 3rd dot for less density
-  const allDots=Object.values(DOTS).filter(d=>d.type!=='landmark');
-  const battleSet=allDots.filter((_,i)=>i%3===0).slice(0,800);
+  // Sample a grid of points across Manhattan at ~200m spacing
+  // and use Mapbox Tilequery to find road points at each sample
+  const GRID_LAT = 0.0018; // ~200m
+  const GRID_LNG = 0.0022;
+  const dots = {};
+  const DOT_SPACING = 0.0003; // ~25m snap grid for dedup
 
-  // Write to Firebase in batches
-  let written=0;
-  for(const d of battleSet){
-    const ref=doc(window._fbDb,`battles/${wid}/dots`,d.id);
-    await setDoc(ref,{
-      lat:d.lat,lng:d.lng,
-      eaten:false,eaterUid:null,eaterColor:null,eaterEmoji:null
-    });
-    written++;
-    if(written%50===0) document.getElementById('battleSub').textContent=`Building board… ${written}/${battleSet.length}`;
+  function snapKey(lat,lng){
+    const sLat=Math.round(lat/DOT_SPACING)*DOT_SPACING;
+    const sLng=Math.round(lng/DOT_SPACING)*DOT_SPACING;
+    return `${Math.round(sLat*100000)}_${Math.round(sLng*100000)}`;
   }
-  document.getElementById('battleSub').textContent=`${written} dots · ends Sunday midnight`;
+
+  // Query Mapbox Tilequery API for roads at a grid of points
+  const points=[];
+  for(let lat=MANHATTAN.minLat;lat<=MANHATTAN.maxLat;lat+=GRID_LAT){
+    for(let lng=MANHATTAN.minLng;lng<=MANHATTAN.maxLng;lng+=GRID_LNG){
+      points.push({lat,lng});
+    }
+  }
+
+  if(sub) sub.textContent=`Querying ${points.length} road points…`;
+
+  // Process in parallel batches of 10
+  const BATCH=10;
+  let found=0;
+  for(let i=0;i<points.length;i+=BATCH){
+    const slice=points.slice(i,i+BATCH);
+    await Promise.all(slice.map(async ({lat,lng})=>{
+      try{
+        const r=await fetch(
+          `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${lng},${lat}.json?layers=road&limit=5&radius=100&access_token=${TOKEN}`
+        );
+        const d=await r.json();
+        if(!d.features) return;
+        d.features.forEach(f=>{
+          if(!f.geometry?.coordinates) return;
+          const [flng,flat]=f.geometry.coordinates;
+          // Filter non-walkable road types
+          const cls=(f.properties?.class||'').toLowerCase();
+          if(['motorway','trunk','ferry'].includes(cls)) return;
+          const key=snapKey(flat,flng);
+          if(!dots[key]) dots[key]={lat:flat,lng:flng};
+          found++;
+        });
+      }catch(e){}
+    }));
+    if(sub) sub.textContent=`Found ${Object.keys(dots).length} road points…`;
+  }
+
+  // Also interpolate between grid points along road lines for denser coverage
+  const dotList=Object.values(dots);
+
+  if(sub) sub.textContent=`Writing ${dotList.length} dots to board…`;
+
+  // Write to Firebase in batches of 499
+  const WBATCH=499;
+  for(let i=0;i<dotList.length;i+=WBATCH){
+    const batch=writeBatch(window._fbDb);
+    dotList.slice(i,i+WBATCH).forEach((d,j)=>{
+      const id=`bd_${i+j}`;
+      const ref=doc(window._fbDb,`battles/${wid}/dots`,id);
+      batch.set(ref,{lat:d.lat,lng:d.lng,eaten:false,eaterUid:null,eaterColor:null,eaterEmoji:null});
+    });
+    await batch.commit();
+  }
+
+  if(sub) sub.textContent=`${dotList.length} dots · ends Sunday midnight`;
 }
 
 // ── Eat a battle dot ─────────────────────────────────────────
@@ -1329,17 +1419,12 @@ function buildRoadDots(centerLat, centerLng, silent=false){
   if(!silent) document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
   lastScanLat=centerLat; lastScanLng=centerLng;
 
-  // We query at zoom 14 to get a wide tile coverage
   const sourceId  = 'composite';
   const roadLayer = 'road';
-
   let allFeatures = [];
 
   try {
-    // querySourceFeatures works on already-loaded tiles
-    allFeatures = map.querySourceFeatures(sourceId, {
-      sourceLayer: roadLayer
-    });
+    allFeatures = map.querySourceFeatures(sourceId, {sourceLayer: roadLayer});
   } catch(e) {
     console.warn('querySourceFeatures failed', e);
   }
@@ -1362,6 +1447,7 @@ function buildRoadDots(centerLat, centerLng, silent=false){
   }
 
   let added=0;
+  const newDotIds=[]; // track newly added dots for merge pass
 
   allFeatures.forEach(f=>{
     if(!f.geometry) return;
@@ -1375,12 +1461,12 @@ function buildRoadDots(centerLat, centerLng, silent=false){
 
     linesets.forEach(coords=>{
       interpolateLine(coords).forEach(({lat,lng})=>{
-        // Filter to 2 km radius
         if(hav(centerLat,centerLng,lat,lng) > SPAWN_R_M) return;
         const id = dotId(lat,lng);
         if(DOTS[id]) return;
         const {type,pts} = dotType(id);
         DOTS[id]={id,lat,lng,type,pts,label:null};
+        newDotIds.push(id);
         added++;
       });
     });
@@ -1391,35 +1477,30 @@ function buildRoadDots(centerLat, centerLng, silent=false){
     if(hav(centerLat,centerLng,lm.lat,lm.lng)>SPAWN_R_M) return;
     const id=`lm_${i}`;
     if(!DOTS[id]) DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name,emoji:lm.emoji||null};
-    added++;
   });
 
-  // ── Merge pass: collapse any non-landmark dots within 20m of each other ──
-  // Build a list of new (non-landmark, non-eaten) dots to check
-  const allIds = Object.keys(DOTS);
-  const toRemove = new Set();
-
-  for(let i=0;i<allIds.length;i++){
-    const a = DOTS[allIds[i]];
-    if(!a || a.type==='landmark' || toRemove.has(a.id)) continue;
-    for(let j=i+1;j<allIds.length;j++){
-      const b = DOTS[allIds[j]];
-      if(!b || b.type==='landmark' || toRemove.has(b.id)) continue;
-      if(hav(a.lat,a.lng,b.lat,b.lng) < 20){
-        // Keep 'a', merge 'b' into it by averaging position, remove 'b'
-        a.lat = (a.lat + b.lat) / 2;
-        a.lng = (a.lng + b.lng) / 2;
-        // Prefer golden type if either is golden
-        if(b.type==='golden') a.type='golden';
-        toRemove.add(b.id);
-        added--;
+  // Merge pass — only on initial load to avoid O(n²) freeze on rescans
+  if(!silent && newDotIds.length > 0){
+    const toRemove = new Set();
+    for(let i=0;i<newDotIds.length;i++){
+      const a = DOTS[newDotIds[i]];
+      if(!a || a.type==='landmark' || toRemove.has(a.id)) continue;
+      for(let j=i+1;j<newDotIds.length;j++){
+        const b = DOTS[newDotIds[j]];
+        if(!b || b.type==='landmark' || toRemove.has(b.id)) continue;
+        if(hav(a.lat,a.lng,b.lat,b.lng) < 20){
+          a.lat=(a.lat+b.lat)/2; a.lng=(a.lng+b.lng)/2;
+          if(b.type==='golden') a.type='golden';
+          toRemove.add(b.id);
+          added--;
+        }
       }
     }
+    toRemove.forEach(id=>delete DOTS[id]);
   }
-  toRemove.forEach(id=>delete DOTS[id]);
 
   const total = Object.keys(DOTS).length;
-  console.log(`[WagaWaga] Road dots generated: ${added} new, ${toRemove.size} merged, ${total} total unique`);
+  console.log(`[WagaWaga] Dots: +${added} new, ${total} total`);
   if(!silent){
     document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
     setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
@@ -1527,31 +1608,35 @@ function initMap(lat,lng){
     el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${getEmoji().emoji}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 
-    // Wait for idle (all tiles rendered) then generate dots
-    // Retry up to 3 times if initial scan returns too few dots
+    // Wait for idle then scan dots — zoom out first to load more tiles
     let dotScanAttempts = 0;
     function attemptDotScan(){
       dotScanAttempts++;
       buildRoadDots(lat,lng);
-      // Check after 3 seconds if we got enough dots — if not, retry
       setTimeout(()=>{
         const dotCount = Object.keys(DOTS).length;
         if(dotCount < 10 && dotScanAttempts < 3){
-          console.log(`[WagaWaga] Only ${dotCount} dots found, retrying scan (attempt ${dotScanAttempts+1})...`);
+          console.log(`[WagaWaga] Only ${dotCount} dots, retrying (attempt ${dotScanAttempts+1})`);
           document.getElementById('dotLoader').textContent='⬤ Retrying scan…';
           document.getElementById('dotLoader').classList.remove('gone');
-          // Wait for map to fully settle then retry
           setTimeout(()=>{
             map.once('idle', attemptDotScan);
-            map.easeTo({zoom:15,duration:800}); // zoom out slightly to load more tiles
-            setTimeout(()=>map.easeTo({center:[lng,lat],zoom:16,duration:800}),900);
-          },500);
+            map.easeTo({zoom:13,duration:600});
+            setTimeout(()=>map.easeTo({center:[lng,lat],zoom:16,duration:800}),700);
+          },400);
         }
       },3000);
     }
-    map.once('idle', ()=>{
-      attemptDotScan();
-      updateTrail();
+
+    // Start by zooming out to zoom 13 to load a wider tile area, then scan
+    map.once('idle',()=>{
+      map.easeTo({zoom:13,duration:800});
+      setTimeout(()=>{
+        map.easeTo({center:[lng,lat],zoom:16,duration:800});
+        setTimeout(()=>{
+          map.once('idle',()=>{ attemptDotScan(); updateTrail(); });
+        },900);
+      },900);
     });
 
     updateUI();renderLB('day');renderTerr();renderCh();renderRecap();
@@ -1594,7 +1679,9 @@ function awardChallenge(id, bonus, msg){
   const c=S.challenges?.find(c=>c.id===id);
   if(!c||c.done) return;
   c.done=true;
+  c.prog=c.total; // ensure progress shows complete
   S.todayDots+=bonus;S.weekDots+=bonus;S.allDots+=bonus;walkBonus+=bonus;
+  save(); // save immediately so bonus is persisted
   showToast(ICO.star,`${msg} +${bonus.toLocaleString()} pts`);
 }
 
@@ -1611,45 +1698,81 @@ function collect(d){
 
   // c1 — Daily Grind: 50 dots today
   const c1=ch('c1');
-  if(c1&&!c1.done){c1.prog=S.todayDots;if(c1.prog>=c1.total) awardChallenge('c1',300,'Daily Grind complete!');}
+  if(c1&&!c1.done){
+    c1.prog=S.todayDots;
+    if(c1.prog>=c1.total) awardChallenge('c1',300,'Daily Grind complete!');
+  }
 
   // c_eb — Early Bird: 20 dots before 9am
   const ceb=ch('c_eb');
-  if(ceb&&!ceb.done&&hr<9){ceb.prog++;if(ceb.prog>=ceb.total) awardChallenge('c_eb',200,'Early Bird complete!');}
+  if(ceb&&!ceb.done&&hr<9){
+    ceb.prog++;
+    if(ceb.prog>=ceb.total) awardChallenge('c_eb',200,'Early Bird complete!');
+  }
 
   // c_no — Night Owl: 20 dots after 8pm
   const cno=ch('c_no');
-  if(cno&&!cno.done&&hr>=20){cno.prog++;if(cno.prog>=cno.total) awardChallenge('c_no',200,'Night Owl complete!');}
+  if(cno&&!cno.done&&hr>=20){
+    cno.prog++;
+    if(cno.prog>=cno.total) awardChallenge('c_no',200,'Night Owl complete!');
+  }
 
   // c_sr — Speed Run: 10 dots in 5 minutes
   const csr=ch('c_sr');
   if(csr&&!csr.done){
-    if(!S.speedRunStart||Date.now()-S.speedRunStart>300000){S.speedRunStart=Date.now();S.speedRunDots=0;}
-    S.speedRunDots++;csr.prog=S.speedRunDots;
+    const now5=Date.now();
+    if(!S.speedRunStart||now5-S.speedRunStart>300000){
+      S.speedRunStart=now5;S.speedRunDots=0;
+    }
+    S.speedRunDots++;
+    csr.prog=S.speedRunDots;
     if(csr.prog>=csr.total) awardChallenge('c_sr',150,'Speed Run complete!');
   }
 
-  // c_leg — Legend: 1000 dots this month
+  // c_leg — Legend: 1000 dots total allDots
   const cleg=ch('c_leg');
-  if(cleg&&!cleg.done){cleg.prog=S.allDots;if(cleg.prog>=cleg.total) awardChallenge('c_leg',2000,'Legend complete!');}
+  if(cleg&&!cleg.done){
+    cleg.prog=S.allDots;
+    if(cleg.prog>=cleg.total) awardChallenge('c_leg',2000,'Legend complete!');
+  }
 
-  // c_fs — First Steps: first dot ever
+  // c_fs — First Steps: first dot ever (only fires once, allDots===pts means first dot)
   const cfs=ch('c_fs');
-  if(cfs&&!cfs.done){cfs.prog=1;awardChallenge('c_fs',50,'First Steps complete!');}
+  if(cfs&&!cfs.done&&S.allDots<=d.pts){
+    cfs.prog=1;
+    awardChallenge('c_fs',50,'First Steps complete!');
+  }
 
   // c_100 — Century: 100 total dots
   const c100=ch('c_100');
-  if(c100&&!c100.done){c100.prog=S.allDots;if(c100.prog>=c100.total) awardChallenge('c_100',300,'Century complete!');}
+  if(c100&&!c100.done){
+    c100.prog=S.allDots;
+    if(c100.prog>=c100.total) awardChallenge('c_100',300,'Century complete!');
+  }
 
-  // c_fire — On Fire: 7 day streak (checked on streak update)
+  // c_fire — On Fire: 7 day streak
   const cfire=ch('c_fire');
-  if(cfire&&!cfire.done){cfire.prog=S.streak;if(cfire.prog>=cfire.total) awardChallenge('c_fire',500,'On Fire complete!');}
+  if(cfire&&!cfire.done){
+    cfire.prog=S.streak;
+    if(cfire.prog>=cfire.total) awardChallenge('c_fire',500,'On Fire complete!');
+  }
+
+  // c3 — Explorer: unique neighborhoods (tracked in pushTerritoryDot)
+  const c3=ch('c3');
+  if(c3) c3.prog=(S.neighborhoodsThisWeek||[]).length;
+
+  // c_con — Consistent: days walked (tracked at midnight)
+  const ccon=ch('c_con');
+  if(ccon) ccon.prog=S.daysWalkedThisWeek||0;
 
   // golden dot challenges
   if(d.type==='golden'){
     if(tracking) walkGolden++;
     const c4=ch('c4');
-    if(c4&&!c4.done){c4.prog++;if(c4.prog>=c4.total) awardChallenge('c4',1500,'Golden Hunter complete!');}
+    if(c4&&!c4.done){
+      c4.prog++;
+      if(c4.prog>=c4.total) awardChallenge('c4',1500,'Golden Hunter complete!');
+    }
   }
 
   save();refreshGL();updateUI();renderCh();updateTrail();
@@ -1744,18 +1867,54 @@ let walkStartDots = 0;
 let walkStartTime = null;
 let walkGolden = 0;
 let walkBonus = 0;
-let isProgrammaticMove = false; // flag to distinguish auto-follow from user drag
+let isProgrammaticMove = false;
+
+// ── GPS smoothing state ───────────────────────────────────────
+const GPS_HISTORY = [];       // last N positions for smoothing
+const GPS_HISTORY_MAX = 4;    // average over 4 readings
+const MAX_WALK_SPEED = 12;    // km/h — anything faster is a jump/vehicle
+const MIN_ACCURACY   = 50;    // ignore readings worse than 50m
+
+function smoothedPosition(lat, lng){
+  GPS_HISTORY.push({lat,lng});
+  if(GPS_HISTORY.length > GPS_HISTORY_MAX) GPS_HISTORY.shift();
+  // Weighted average — more recent = more weight
+  let wLat=0,wLng=0,wSum=0;
+  GPS_HISTORY.forEach((p,i)=>{
+    const w=i+1; // weight: older=1, newer=GPS_HISTORY_MAX
+    wLat+=p.lat*w; wLng+=p.lng*w; wSum+=w;
+  });
+  return {lat:wLat/wSum, lng:wLng/wSum};
+}
+
+function isPositionJump(lat, lng){
+  if(GPS_HISTORY.length < 2) return false;
+  const prev = GPS_HISTORY[GPS_HISTORY.length-1];
+  const dist = hav(prev.lat, prev.lng, lat, lng); // metres
+  const elapsed = 2; // assume ~2s between readings
+  const speedKmh = (dist / elapsed) * 3.6;
+  return speedKmh > MAX_WALK_SPEED;
+}
 
 function startWatch(){
   if(watchId!==null) return;
   watchId=navigator.geolocation.watchPosition(pos=>{
-    const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
+    const{latitude:rawLat, longitude:rawLng, accuracy:acc}=pos.coords;
 
-    // Ignore very noisy readings
-    if(acc > 65) return;
+    // 1. Accuracy filter — ignore very noisy readings
+    if(acc > MIN_ACCURACY) return;
+
+    // 2. Speed filter — ignore position jumps faster than walking
+    if(isPositionJump(rawLat, rawLng)){
+      console.log('[WagaWaga] GPS jump detected, ignoring position');
+      return;
+    }
+
+    // 3. Smoothing — weighted average of recent positions
+    const {lat, lng} = smoothedPosition(rawLat, rawLng);
 
     setGPS('active',`±${Math.round(acc)}m`);
-    playerLat=lat;playerLng=lng;
+    playerLat=lat; playerLng=lng;
     if(playerMarker) playerMarker.setLngLat([lng,lat]);
     checkCollect(lat,lng);
     checkBattleCollect(lat,lng);
@@ -1765,17 +1924,24 @@ function startWatch(){
     // Auto-follow map
     if(mapFollowing && map){
       isProgrammaticMove=true;
-      map.easeTo({center:[lng,lat],duration:600,essential:true});
-      setTimeout(()=>{ isProgrammaticMove=false; },700);
+      map.easeTo({center:[lng,lat],duration:800,essential:true});
+      setTimeout(()=>{ isProgrammaticMove=false; },900);
     }
 
-    if(!startWatch._geo||Date.now()-startWatch._geo>12000){startWatch._geo=Date.now();geoName(lat,lng);}
+    if(!startWatch._geo||Date.now()-startWatch._geo>12000){
+      startWatch._geo=Date.now();geoName(lat,lng);
+    }
 
     // Auto-rescan dots when walked 400m from last scan
     if(lastScanLat!==null && hav(lat,lng,lastScanLat,lastScanLng) > RESCAN_DIST_M){
-      lastScanLat=lat;lastScanLng=lng;
-      // Use timeout instead of idle event — more reliable on mobile
-      setTimeout(()=>buildRoadDots(lat,lng,true), 2000);
+      lastScanLat=lat; lastScanLng=lng;
+      if(map){
+        map.easeTo({center:[lng,lat],zoom:15,duration:500});
+        setTimeout(()=>{
+          map.easeTo({center:[lng,lat],zoom:16,duration:300});
+          setTimeout(()=>buildRoadDots(lat,lng,true), 1500);
+        },600);
+      }
     }
   },()=>setGPS('error','GPS lost'),{
     enableHighAccuracy:true,
@@ -1783,7 +1949,7 @@ function startWatch(){
     timeout:10000
   });
 
-  // Only pause auto-follow on genuine user touch/drag, not programmatic moves
+  // Only pause auto-follow on genuine user drag
   map.on('dragstart',()=>{
     if(!isProgrammaticMove) mapFollowing=false;
   });
@@ -1825,11 +1991,19 @@ function toggleWalk(){
 
 function showWalkSummary(){
   const dotsThisWalk = S.todayDots - walkStartDots;
-  if(dotsThisWalk <= 0){ return; } // nothing collected, skip summary
+  if(dotsThisWalk <= 0){ return; }
   const elapsed = Date.now() - walkStartTime;
   const mins = Math.floor(elapsed/60000);
   const secs = Math.floor((elapsed%60000)/1000);
   const durStr = mins>0 ? `${mins}m ${secs}s walk` : `${secs}s walk`;
+
+  // Accumulate walk time into totals
+  const elapsedMins = Math.round(elapsed/60000);
+  S.todayMins = (S.todayMins||0) + elapsedMins;
+  S.weekMins  = (S.weekMins||0)  + elapsedMins;
+  S.allMins   = (S.allMins||0)   + elapsedMins;
+  save();
+
   document.getElementById('wsDots').textContent    = dotsThisWalk;
   document.getElementById('wsGolden').textContent  = walkGolden;
   document.getElementById('wsStreak').textContent  = S.streak;
@@ -1840,6 +2014,35 @@ function showWalkSummary(){
 
 function closeWalkSummary(){
   document.getElementById('walkSummary').classList.remove('show');
+}
+
+/* ─── PROFILE MODAL ──────────────────────────────────────── */
+function openProfile(){
+  const tier=getEmoji();
+  document.getElementById('profileEmoji').textContent=tier.emoji;
+  document.getElementById('profileTierLabel').textContent=tier.label;
+  document.getElementById('profileNameInput').value=S.displayName||'';
+  document.getElementById('profileError').style.display='none';
+  document.getElementById('profileModal').classList.add('show');
+}
+
+function closeProfile(){
+  document.getElementById('profileModal').classList.remove('show');
+}
+
+async function saveProfile(){
+  const val=document.getElementById('profileNameInput').value.trim();
+  const errEl=document.getElementById('profileError');
+  if(!val){errEl.textContent='Please enter a name.';errEl.style.display='block';return;}
+  if(val.length<2){errEl.textContent='Name must be at least 2 characters.';errEl.style.display='block';return;}
+  errEl.style.display='none';
+
+  // Update local store
+  S.displayName=val;
+  save();
+  updateUI();
+  closeProfile();
+  showToast(ICO.walk,`Name updated to "${val}"!`);
 }
 function centerMap(){
   if(map&&playerLng!==null){
@@ -2027,16 +2230,71 @@ function renderCh(){
 }
 
 /* ─── RENDER RECAP ───────────────────────────────────────── */
+function fmtMins(mins){
+  if(!mins||mins<1) return '0m';
+  if(mins<60) return `${mins}m`;
+  const h=Math.floor(mins/60),m=mins%60;
+  return m>0?`${h}h ${m}m`:`${h}h`;
+}
+
 function renderRecap(){
   const wh=S.weekHistory||[];
   const wk=wh.reduce((a,b)=>a+b.dots,0)+S.todayDots;
   const best=Math.max(S.todayDots,...wh.map(d=>d.dots),0);
   const days=[...wh.map(d=>d.dots>0),S.todayDots>0].filter(Boolean).length;
-  document.getElementById('recapWrap').innerHTML=`<div class="recap-card"><div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:12px">This Week</div><div class="recap-stats"><div class="recap-stat"><div class="recap-stat-val">${wk.toLocaleString()}</div><div class="recap-stat-lbl">Total dots</div></div><div class="recap-stat"><div class="recap-stat-val">${best}</div><div class="recap-stat-lbl">Best day</div></div><div class="recap-stat"><div class="recap-stat-val">${S.streak}</div><div class="recap-stat-lbl">Streak</div></div><div class="recap-stat"><div class="recap-stat-val">${days}</div><div class="recap-stat-lbl">Active days</div></div></div><button class="share-btn" onclick="shareRecap()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>Share My Week</button></div>`;
+  const weekMins=(S.weekMins||0)+(S.todayMins||0);
+  const todayMins=S.todayMins||0;
+  const allMins=S.allMins||0;
+
+  document.getElementById('recapWrap').innerHTML=`
+    <div class="recap-card">
+      <div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:12px">This Week</div>
+      <div class="recap-stats">
+        <div class="recap-stat">
+          <div class="recap-stat-val">${wk.toLocaleString()}</div>
+          <div class="recap-stat-lbl">Total dots</div>
+        </div>
+        <div class="recap-stat">
+          <div class="recap-stat-val">${best}</div>
+          <div class="recap-stat-lbl">Best day</div>
+        </div>
+        <div class="recap-stat">
+          <div class="recap-stat-val">${S.streak}</div>
+          <div class="recap-stat-lbl">Streak 🔥</div>
+        </div>
+        <div class="recap-stat">
+          <div class="recap-stat-val">${days}</div>
+          <div class="recap-stat-lbl">Active days</div>
+        </div>
+      </div>
+
+      <div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin:14px 0 10px">Time Walked</div>
+      <div class="recap-stats">
+        <div class="recap-stat">
+          <div class="recap-stat-val">${fmtMins(todayMins)}</div>
+          <div class="recap-stat-lbl">Today</div>
+        </div>
+        <div class="recap-stat">
+          <div class="recap-stat-val">${fmtMins(weekMins)}</div>
+          <div class="recap-stat-lbl">This week</div>
+        </div>
+        <div class="recap-stat" style="grid-column:span 2">
+          <div class="recap-stat-val">${fmtMins(allMins)}</div>
+          <div class="recap-stat-lbl">All time</div>
+        </div>
+      </div>
+
+      <button class="share-btn" onclick="shareRecap()" style="margin-top:14px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>Share My Week
+      </button>
+    </div>`;
 }
+
 function shareRecap(){
-  const wh=S.weekHistory||[];const wk=wh.reduce((a,b)=>a+b.dots,0)+S.todayDots;
-  const text=`My WagaWaga Walk week:\n${wk} dots · ${S.streak} day streak\nhttps://ethanforman1994.github.io/wagawaga`;
+  const wh=S.weekHistory||[];
+  const wk=wh.reduce((a,b)=>a+b.dots,0)+S.todayDots;
+  const weekMins=(S.weekMins||0)+(S.todayMins||0);
+  const text=`My WagaWaga Walk week:\n${wk} dots · ${fmtMins(weekMins)} walked · ${S.streak} day streak\nhttps://ethanforman1994.github.io/wagawaga`;
   if(navigator.share) navigator.share({text});
   else{navigator.clipboard?.writeText(text);showToast(ICO.walk,'Copied!');}
 }
@@ -2086,11 +2344,11 @@ function askInit(){ /* initials replaced by emoji tiers */ }
 /* ─── MIDNIGHT RESET ─────────────────────────────────────── */
 function doMidnightReset(){
   S.weekHistory=S.weekHistory||[];
-  S.weekHistory.unshift({date:S.day,dots:S.todayDots});
+  S.weekHistory.unshift({date:S.day,dots:S.todayDots,mins:S.todayMins||0});
   if(S.weekHistory.length>7) S.weekHistory.pop();
   S.streak=S.walkedToday?(S.streak||0)+1:0;
 
-  // Consistent challenge — increment days walked this week
+  // Consistent challenge
   if(S.walkedToday){
     S.daysWalkedThisWeek=(S.daysWalkedThisWeek||0)+1;
     const ccon=S.challenges?.find(c=>c.id==='c_con');
@@ -2104,6 +2362,7 @@ function doMidnightReset(){
   // Reset daily values
   S.todayDots=0;S.eatenIds={};S.collectedToday=[];S.walkedToday=false;
   S.day=toDay();S.speedRunStart=null;S.speedRunDots=0;
+  S.todayMins=0; // reset daily minutes
 
   // Reset daily challenges
   ['c1','c_eb','c_no','c_sr'].forEach(id=>{
@@ -2111,11 +2370,12 @@ function doMidnightReset(){
     if(c){c.prog=0;c.done=false;}
   });
 
-  // Reset weekly challenges on Monday
+  // Reset weekly on Monday
   const dow=new Date().getDay();
   if(dow===1){
     S.neighborhoodsThisWeek=[];
     S.daysWalkedThisWeek=0;
+    S.weekMins=0; // reset weekly minutes
     ['c3','c_con','c_td'].forEach(id=>{
       const c=S.challenges?.find(c=>c.id===id);
       if(c){c.prog=0;c.done=false;}

@@ -1429,89 +1429,58 @@ const WALKABLE_CLASSES = new Set([
 
 const SKIP_CLASSES = new Set(['motorway','ferry','aerialway','golf']);
 
-async function buildRoadDots(centerLat, centerLng, silent=false){
+function buildRoadDots(centerLat, centerLng, silent=false){
   lastScanLat=centerLat; lastScanLng=centerLng;
   if(!silent) document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
 
-  // Sweep the map across a grid of positions covering the full radius
-  // At each position, wait for tiles to load then scan road geometry
-  const SWEEP_STEP=0.008; // ~900m steps — covers 2km radius in a 3x3 grid
-  const radiusDeg=SPAWN_R_M/111320;
-  const positions=[];
+  let allFeatures=[];
+  try{ allFeatures=map.querySourceFeatures('composite',{sourceLayer:'road'}); }
+  catch(e){ console.warn('querySourceFeatures failed',e); }
 
-  for(let dlat=-radiusDeg;dlat<=radiusDeg;dlat+=SWEEP_STEP)
-    for(let dlng=-radiusDeg;dlng<=radiusDeg;dlng+=SWEEP_STEP){
-      const lat=centerLat+dlat, lng=centerLng+dlng;
-      if(hav(centerLat,centerLng,lat,lng)<=SPAWN_R_M) positions.push({lat,lng});
+  if(allFeatures.length<10){
+    const W=map.getCanvas().width/(window.devicePixelRatio||1);
+    const H=map.getCanvas().height/(window.devicePixelRatio||1);
+    const seen=new Set();
+    for(let x=0;x<=4;x++) for(let y=0;y<=6;y++){
+      try{
+        map.queryRenderedFeatures([W*x/4,H*y/6]).forEach(f=>{
+          const key=f.id+'_'+f.layer.id;
+          if(!seen.has(key)){seen.add(key);allFeatures.push(f);}
+        });
+      }catch(e){}
     }
-
-  // Always include center
-  positions.unshift({lat:centerLat,lng:centerLng});
+  }
 
   let added=0;
-  const allNewIds=[];
+  const newDotIds=[];
 
-  function scanCurrentTiles(){
-    let allFeatures=[];
-    try{ allFeatures=map.querySourceFeatures('composite',{sourceLayer:'road'}); }
-    catch(e){}
-    if(allFeatures.length<10){
-      const W=map.getCanvas().width/(window.devicePixelRatio||1);
-      const H=map.getCanvas().height/(window.devicePixelRatio||1);
-      const seen=new Set();
-      for(let x=0;x<=3;x++) for(let y=0;y<=4;y++){
-        try{
-          map.queryRenderedFeatures([W*x/3,H*y/4]).forEach(f=>{
-            const key=f.id+'_'+f.layer.id;
-            if(!seen.has(key)){seen.add(key);allFeatures.push(f);}
-          });
-        }catch(e){}
-      }
-    }
-    allFeatures.forEach(f=>{
-      if(!f.geometry) return;
-      const cls=(f.properties?.class||f.properties?.type||'').toLowerCase();
-      if(SKIP_CLASSES.has(cls)) return;
-      const linesets=f.geometry.type==='LineString'?[f.geometry.coordinates]:
-                     f.geometry.type==='MultiLineString'?f.geometry.coordinates:[];
-      linesets.forEach(coords=>{
-        interpolateLine(coords).forEach(({lat,lng})=>{
-          if(hav(centerLat,centerLng,lat,lng)>SPAWN_R_M) return;
-          const id=dotId(lat,lng);
-          if(DOTS[id]) return;
-          const {type,pts}=dotType(id);
-          DOTS[id]={id,lat,lng,type,pts,label:null};
-          allNewIds.push(id);
-          added++;
-        });
+  allFeatures.forEach(f=>{
+    if(!f.geometry) return;
+    const cls=(f.properties?.class||f.properties?.type||f.layer?.['source-layer']||'').toLowerCase();
+    if(SKIP_CLASSES.has(cls)) return;
+    const linesets=f.geometry.type==='LineString'?[f.geometry.coordinates]:
+                   f.geometry.type==='MultiLineString'?f.geometry.coordinates:[];
+    linesets.forEach(coords=>{
+      interpolateLine(coords).forEach(({lat,lng})=>{
+        if(hav(centerLat,centerLng,lat,lng)>SPAWN_R_M) return;
+        const id=dotId(lat,lng);
+        if(DOTS[id]) return;
+        const {type,pts}=dotType(id);
+        DOTS[id]={id,lat,lng,type,pts,label:null};
+        newDotIds.push(id);
+        added++;
       });
     });
-  }
+  });
 
-  // Scan each position
-  for(let i=0;i<positions.length;i++){
-    const {lat,lng}=positions[i];
-    // Move map to position and wait for tiles
-    await new Promise(res=>{
-      map.once('idle',()=>{ scanCurrentTiles(); res(); });
-      map.easeTo({center:[lng,lat],zoom:15,duration:200});
-    });
-    if(!silent)
-      document.getElementById('dotLoader').textContent=`⬤ Scanning… ${Math.round((i+1)/positions.length*100)}%`;
-    pushGL(); // show dots as we go
-  }
-
-  // Return map to player position
-  map.easeTo({center:[playerLng||centerLng,playerLat||centerLat],zoom:16,duration:400});
-
-  // Merge pass — collapse duplicates within 20m
-  if(allNewIds.length>0){
+  // Merge pass — collapse dots within 20m
+  if(newDotIds.length>0){
     const toRemove=new Set();
-    for(let i=0;i<allNewIds.length;i++){
-      const a=DOTS[allNewIds[i]];
+    for(let i=0;i<newDotIds.length;i++){
+      const a=DOTS[newDotIds[i]];
       if(!a||a.type==='landmark'||toRemove.has(a.id)) continue;
-      for(let j=i+1;j<allNewIds.length;j++){
-        const b=DOTS[allNewIds[j]];
+      for(let j=i+1;j<newDotIds.length;j++){
+        const b=DOTS[newDotIds[j]];
         if(!b||b.type==='landmark'||toRemove.has(b.id)) continue;
         if(hav(a.lat,a.lng,b.lat,b.lng)<20){
           a.lat=(a.lat+b.lat)/2; a.lng=(a.lng+b.lng)/2;
@@ -1523,7 +1492,7 @@ async function buildRoadDots(centerLat, centerLng, silent=false){
     toRemove.forEach(id=>delete DOTS[id]);
   }
 
-  // Add landmarks
+  // Landmarks
   LANDMARKS.forEach((lm,i)=>{
     if(hav(centerLat,centerLng,lm.lat,lm.lng)>SPAWN_R_M) return;
     const id=`lm_${i}`;
@@ -1531,7 +1500,7 @@ async function buildRoadDots(centerLat, centerLng, silent=false){
   });
 
   const total=Object.keys(DOTS).length;
-  console.log(`[WagaWaga] Sweep scan: +${added} dots (${total} total)`);
+  console.log(`[WagaWaga] Scan: +${added} dots (${total} total)`);
   if(!silent){
     document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
     setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
@@ -1637,35 +1606,10 @@ function initMap(lat,lng){
     el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${getEmoji().emoji}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
 
-    // Wait for idle then scan dots — zoom out first to load more tiles
-    let dotScanAttempts = 0;
-    function attemptDotScan(){
-      dotScanAttempts++;
-      buildRoadDots(lat,lng);
-      setTimeout(()=>{
-        const dotCount = Object.keys(DOTS).length;
-        if(dotCount < 10 && dotScanAttempts < 3){
-          console.log(`[WagaWaga] Only ${dotCount} dots, retrying (attempt ${dotScanAttempts+1})`);
-          document.getElementById('dotLoader').textContent='⬤ Retrying scan…';
-          document.getElementById('dotLoader').classList.remove('gone');
-          setTimeout(()=>{
-            map.once('idle', attemptDotScan);
-            map.easeTo({zoom:13,duration:600});
-            setTimeout(()=>map.easeTo({center:[lng,lat],zoom:16,duration:800}),700);
-          },400);
-        }
-      },3000);
-    }
-
-    // Start by zooming out to zoom 13 to load a wider tile area, then scan
+    // Wait for map to be idle then scan road dots
     map.once('idle',()=>{
-      map.easeTo({zoom:13,duration:800});
-      setTimeout(()=>{
-        map.easeTo({center:[lng,lat],zoom:16,duration:800});
-        setTimeout(()=>{
-          map.once('idle',()=>{ attemptDotScan(); updateTrail(); });
-        },900);
-      },900);
+      buildRoadDots(lat,lng);
+      updateTrail();
     });
 
     updateUI();renderLB('day');renderTerr();renderCh();renderRecap();

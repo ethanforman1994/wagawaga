@@ -195,18 +195,33 @@ window._pushCloud = async function(){
 };
 
 // ── Live leaderboard listener ────────────────────────────────
+const _lbUnsubs = {}; // track unsubscribe fns per period
+
 function subscribeLeaderboard(){
-  const q = query(collection(db,'users'), orderBy('todayDots','desc'), limit(10));
-  onSnapshot(q, snap=>{
-    const rows=[];
-    snap.forEach(d=>{
-      const data=d.data();
-      rows.push({uid:d.id,n:data.displayName||'Anonymous',emoji:data.emoji||'🐣',
-        score:data.todayDots||0,week:data.weekDots||0,all:data.allDots||0,
-        streak:data.streak||0,you:d.id===fbUid});
+  // Subscribe to all three periods upfront
+  const periods = [
+    {key:'day',  field:'todayDots'},
+    {key:'week', field:'weekDots'},
+    {key:'month',field:'allDots'},
+  ];
+  periods.forEach(({key,field})=>{
+    const q = query(collection(db,'users'), orderBy(field,'desc'), limit(10));
+    _lbUnsubs[key] = onSnapshot(q, snap=>{
+      const rows=[];
+      snap.forEach(d=>{
+        const data=d.data();
+        rows.push({uid:d.id,n:data.displayName||'Anonymous',emoji:data.emoji||'🐣',
+          score:data.todayDots||0,week:data.weekDots||0,all:data.allDots||0,
+          streak:data.streak||0,you:d.id===fbUid});
+      });
+      window._liveRowsByPeriod = window._liveRowsByPeriod||{};
+      window._liveRowsByPeriod[key] = rows;
+      // Only re-render if this is the currently visible period
+      if((window._lbPeriod||'day')===key && window._renderLB){
+        window._liveRows = rows;
+        window._renderLB(key);
+      }
     });
-    window._liveRows=rows;
-    if(window._renderLB) window._renderLB(window._lbPeriod||'day');
   });
 }
 </script>
@@ -2208,7 +2223,16 @@ function renderLB(period){
     });
   }
 }
-function setLBTab(btn,period){btn.closest('.subtabs').querySelectorAll('.stab').forEach(s=>s.classList.remove('on'));btn.classList.add('on');renderLB(period);}
+function setLBTab(btn,period){
+  btn.closest('.subtabs').querySelectorAll('.stab').forEach(s=>s.classList.remove('on'));
+  btn.classList.add('on');
+  window._lbPeriod=period;
+  // Switch to the correct period's cached rows
+  if(window._liveRowsByPeriod?.[period]){
+    window._liveRows=window._liveRowsByPeriod[period];
+  }
+  renderLB(period);
+}
 
 /* ─── RENDER TERRITORIES ─────────────────────────────────── */
 function renderTerr(){

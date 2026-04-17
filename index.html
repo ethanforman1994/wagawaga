@@ -269,6 +269,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 .sp{flex:1;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:14px;padding:9px 8px 7px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.3)}
 .sp .v{font-size:18px;font-weight:800;color:var(--gold);letter-spacing:-.5px;display:block;line-height:1}
 .sp .l{font-size:9px;font-weight:500;color:var(--text2);letter-spacing:.7px;text-transform:uppercase;margin-top:3px;display:block}
+.sp .l-sub{font-size:9px;color:var(--teal-light);margin-top:1px;display:block;letter-spacing:.2px}
 
 /* CHALLENGE BANNER */
 .ch-banner{position:absolute;top:calc(var(--st) + 150px);left:14px;right:14px;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--teal-border);border-radius:14px;padding:10px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.3);cursor:pointer}
@@ -602,9 +603,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
     </div>
 
     <div class="score-row">
-      <div class="sp"><span class="v" id="scoreToday">0</span><span class="l">Today</span></div>
-      <div class="sp"><span class="v" id="scoreWeek">0</span><span class="l">Week</span></div>
-      <div class="sp"><span class="v" id="scoreAll">0</span><span class="l">All Time</span></div>
+      <div class="sp"><span class="v" id="scoreToday">0</span><span class="l">Today</span><span class="l-sub" id="scoreTodaySub"></span></div>
+      <div class="sp"><span class="v" id="scoreWeek">0</span><span class="l">Week</span><span class="l-sub" id="scoreWeekSub"></span></div>
+      <div class="sp"><span class="v" id="scoreAll">0</span><span class="l">All Time</span><span class="l-sub" id="scoreAllSub"></span></div>
     </div>
 
     <div class="ch-banner" onclick="showPanel('challenges',null,'ot')">
@@ -810,9 +811,11 @@ function blank(){
   return{
     day:toDay(),todayDots:0,weekDots:0,allDots:0,streak:0,walkedToday:false,
     eatenIds:{},collectedToday:[],weekHistory:[],initials:'?',
-    todayMins:0,    // total minutes walked today
-    weekMins:0,     // total minutes walked this week
-    allMins:0,      // total minutes walked all time
+    todayMins:0,weekMins:0,allMins:0,
+    // Raw dot counts (excludes bonus points from challenges)
+    todayRawDots:0,weekRawDots:0,allRawDots:0,
+    // Bonus points earned from challenges
+    todayBonus:0,allBonus:0,
     neighborhoodsThisWeek:[],
     daysWalkedThisWeek:0,
     speedRunStart:null,
@@ -1016,7 +1019,7 @@ const LANDMARKS=[
   {name:'Washington Sq',lat:40.7308,lng:-73.9973,pts:30,emoji:null},
   {name:'Rockefeller Ctr',lat:40.7587,lng:-73.9787,pts:35,emoji:null},
   {name:'Grand Central',lat:40.7527,lng:-73.9772,pts:40,emoji:null},
-  {name:'Friday at Formans',lat:40.7392,lng:-73.9946,pts:1,emoji:'👨‍🍳'},
+  {name:'Friday at Formans',lat:40.7392,lng:-73.9946,pts:25,emoji:'👨‍🍳'},
 ];
 const FRIENDS_CFG=[];
 
@@ -1503,9 +1506,9 @@ function buildRoadDots(centerLat, centerLng, silent=false){
     });
   });
 
-  // Landmarks
+  // Landmarks — load within 10km so they always appear when nearby
   LANDMARKS.forEach((lm,i)=>{
-    if(hav(centerLat,centerLng,lm.lat,lm.lng)>SPAWN_R_M) return;
+    if(hav(centerLat,centerLng,lm.lat,lm.lng)>10000) return;
     const id=`lm_${i}`;
     if(!DOTS[id]) DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name,emoji:lm.emoji||null};
   });
@@ -1543,6 +1546,9 @@ function pushGL(){
   }
   map.addSource('dots',{type:'geojson',data:gj});
 
+  // Check if today is the special beer day (April 17th)
+  const isBeerDay = (()=>{ const d=new Date(); return d.getMonth()===3&&d.getDate()===17; })();
+
   // Eaten (hollow outline)
   map.addLayer({id:'dots-eaten',type:'circle',source:'dots',
     filter:['==',['get','eaten'],true],
@@ -1553,16 +1559,28 @@ function pushGL(){
       'circle-stroke-color':'rgba(255,255,255,0.12)'
     }});
 
-  // Regular dots (teal)
-  map.addLayer({id:'dots-reg',type:'circle',source:'dots',
-    filter:['all',['==',['get','type'],'regular'],['==',['get','eaten'],false]],
-    paint:{
-      'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],
-      'circle-color':'#0EB8A0',
-      'circle-opacity':0.9,
-      'circle-stroke-width':1,
-      'circle-stroke-color':'rgba(255,255,255,0.18)'
-    }});
+  if(isBeerDay){
+    // 🍺 Beer emoji dots instead of teal circles
+    map.addLayer({id:'dots-reg',type:'symbol',source:'dots',
+      filter:['all',['==',['get','type'],'regular'],['==',['get','eaten'],false]],
+      layout:{
+        'text-field':'🍺',
+        'text-size':['interpolate',['linear'],['zoom'],13,10,16,18,19,26],
+        'text-allow-overlap':true,
+        'text-ignore-placement':true,
+      }});
+  } else {
+    // Regular teal dots
+    map.addLayer({id:'dots-reg',type:'circle',source:'dots',
+      filter:['all',['==',['get','type'],'regular'],['==',['get','eaten'],false]],
+      paint:{
+        'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],
+        'circle-color':'#0EB8A0',
+        'circle-opacity':0.9,
+        'circle-stroke-width':1,
+        'circle-stroke-color':'rgba(255,255,255,0.18)'
+      }});
+  }
 
   // Golden dots
   map.addLayer({id:'dots-gold',type:'circle',source:'dots',
@@ -1694,7 +1712,10 @@ function awardChallenge(id, bonus, msg){
   const c=S.challenges?.find(c=>c.id===id);
   if(!c||c.done) return;
   c.done=true; c.prog=c.total;
-  S.todayDots+=bonus;S.weekDots+=bonus;S.allDots+=bonus;walkBonus+=bonus;
+  S.todayDots+=bonus; S.weekDots+=bonus; S.allDots+=bonus;
+  S.todayBonus=(S.todayBonus||0)+bonus;
+  S.allBonus=(S.allBonus||0)+bonus;
+  walkBonus+=bonus;
   save();
   showToast(ICO.star,`${msg} +${bonus.toLocaleString()} pts`);
 }
@@ -1703,11 +1724,14 @@ function collect(d){
   if(S.eatenIds[d.id]) return;
   S.eatenIds[d.id]=true;
 
-  // Track first dot BEFORE incrementing allDots
   const isFirstDot = S.allDots===0;
-
-  S.todayDots+=d.pts;S.weekDots+=d.pts;S.allDots+=d.pts;S.walkedToday=true;
-  S.collectedToday.unshift({pts:d.pts,lat:d.lat,lng:d.lng,type:d.type,time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
+  S.todayDots+=d.pts; S.weekDots+=d.pts; S.allDots+=d.pts; S.walkedToday=true;
+  // Track raw dot counts separately from bonus points
+  S.todayRawDots=(S.todayRawDots||0)+d.pts;
+  S.weekRawDots=(S.weekRawDots||0)+d.pts;
+  S.allRawDots=(S.allRawDots||0)+d.pts;
+  S.collectedToday.unshift({pts:d.pts,lat:d.lat,lng:d.lng,type:d.type,
+    time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
   if(S.collectedToday.length>200) S.collectedToday.pop();
 
   const hr=new Date().getHours();
@@ -1715,54 +1739,72 @@ function collect(d){
 
   // c1 — Daily Grind: 50 dots today
   const c1=ch('c1');
-  if(c1&&!c1.done){c1.prog=S.todayDots;if(c1.prog>=c1.total) awardChallenge('c1',300,'Daily Grind complete!');}
+  if(c1&&!c1.done){
+    c1.prog=S.todayDots;
+    if(c1.prog>=c1.total) awardChallenge('c1',300,'Daily Grind complete!');
+  }
 
   // c_eb — Early Bird: 20 dots before 9am
-  if(hr<9){const ceb=ch('c_eb');if(ceb&&!ceb.done){ceb.prog++;if(ceb.prog>=ceb.total) awardChallenge('c_eb',200,'Early Bird complete!');}}
+  if(hr<9){
+    const ceb=ch('c_eb');
+    if(ceb&&!ceb.done){ceb.prog++;if(ceb.prog>=ceb.total) awardChallenge('c_eb',200,'Early Bird complete!');}
+  }
 
   // c_no — Night Owl: 20 dots after 8pm
-  if(hr>=20){const cno=ch('c_no');if(cno&&!cno.done){cno.prog++;if(cno.prog>=cno.total) awardChallenge('c_no',200,'Night Owl complete!');}}
+  if(hr>=20){
+    const cno=ch('c_no');
+    if(cno&&!cno.done){cno.prog++;if(cno.prog>=cno.total) awardChallenge('c_no',200,'Night Owl complete!');}
+  }
 
   // c_sr — Speed Run: 10 dots in 5 minutes
   const csr=ch('c_sr');
   if(csr&&!csr.done){
     const nowMs=Date.now();
     if(!S.speedRunStart||nowMs-S.speedRunStart>300000){S.speedRunStart=nowMs;S.speedRunDots=0;}
-    S.speedRunDots++;csr.prog=S.speedRunDots;
+    S.speedRunDots++; csr.prog=S.speedRunDots;
     if(csr.prog>=csr.total) awardChallenge('c_sr',150,'Speed Run complete!');
   }
 
-  // c_fs — First Steps: very first dot ever
-  if(isFirstDot){const cfs=ch('c_fs');if(cfs&&!cfs.done){cfs.prog=1;awardChallenge('c_fs',50,'First Steps complete!');}}
+  // c_fs — First Steps: very first dot ever (only on true first dot)
+  if(isFirstDot){
+    const cfs=ch('c_fs');
+    if(cfs&&!cfs.done){cfs.prog=1;awardChallenge('c_fs',50,'First Steps complete!');}
+  }
 
-  // c_100 — Century: 100 total dots
+  // c_100 — Century: 100 total dots (only when crossing threshold)
   const c100=ch('c_100');
-  if(c100&&!c100.done){c100.prog=S.allDots;if(c100.prog>=c100.total) awardChallenge('c_100',300,'Century complete!');}
+  if(c100&&!c100.done){
+    c100.prog=S.allDots;
+    if(S.allDots>=c100.total&&S.allDots-d.pts<c100.total) awardChallenge('c_100',300,'Century complete!');
+  }
 
-  // c_leg — Legend: 1000 total dots
+  // c_leg — Legend: 1000 total dots (only when crossing threshold)
   const cleg=ch('c_leg');
-  if(cleg&&!cleg.done){cleg.prog=S.allDots;if(cleg.prog>=cleg.total) awardChallenge('c_leg',2000,'Legend complete!');}
+  if(cleg&&!cleg.done){
+    cleg.prog=S.allDots;
+    if(S.allDots>=cleg.total&&S.allDots-d.pts<cleg.total) awardChallenge('c_leg',2000,'Legend complete!');
+  }
 
-  // c_fire — On Fire: 7 day streak
+  // c_fire — On Fire: 7 day streak (only update display, award at midnight)
   const cfire=ch('c_fire');
-  if(cfire&&!cfire.done){cfire.prog=S.streak;if(cfire.prog>=cfire.total) awardChallenge('c_fire',500,'On Fire complete!');}
+  if(cfire&&!cfire.done) cfire.prog=S.streak;
 
   // c3 — Explorer: unique neighborhoods (tracked in pushTerritoryDot)
   const c3=ch('c3');
   if(c3&&!c3.done) c3.prog=(S.neighborhoodsThisWeek||[]).length;
 
-  // c_con — Consistent: days walked this week (tracked at midnight)
+  // c_con — Consistent: days walked (tracked at midnight)
   const ccon=ch('c_con');
   if(ccon&&!ccon.done) ccon.prog=S.daysWalkedThisWeek||0;
 
-  // c_td — Top Dog: #1 on today's leaderboard
+  // c_td — Top Dog: only check if leaderboard has multiple real users
   const ctd=ch('c_td');
-  if(ctd&&!ctd.done&&window._liveRows?.length>0){
+  if(ctd&&!ctd.done&&window._liveRows?.length>1){
     const sorted=[...window._liveRows].sort((a,b)=>b.score-a.score);
     if(sorted[0]?.you){ctd.prog=1;awardChallenge('c_td',750,'Top Dog! You\'re #1 today!');}
   }
 
-  // c_tk — Territory King: own 3+ territories this month
+  // c_tk — Territory King: need 3 actual distinct territories
   const ctk=ch('c_tk');
   if(ctk&&!ctk.done){
     ctk.prog=(S.neighborhoodsThisWeek||[]).length;
@@ -2017,6 +2059,18 @@ function updateUI(){
   document.getElementById('scoreToday').textContent=fmt(S.todayDots);
   document.getElementById('scoreWeek').textContent=fmt(S.weekDots);
   document.getElementById('scoreAll').textContent=fmt(S.allDots);
+
+  // Show dot count + bonus breakdown under each score
+  const todayRaw=S.todayRawDots||0, todayBonus=S.todayBonus||0;
+  const weekRaw=S.weekRawDots||0;
+  const allRaw=S.allRawDots||0, allBonus=S.allBonus||0;
+  const sub=document.getElementById('scoreTodaySub');
+  const subW=document.getElementById('scoreWeekSub');
+  const subA=document.getElementById('scoreAllSub');
+  if(sub) sub.textContent=todayBonus>0?`${todayRaw} dots + ${todayBonus} bonus`:`${todayRaw} dots`;
+  if(subW) subW.textContent=`${weekRaw} dots`;
+  if(subA) subA.textContent=allBonus>0?`${fmt(allRaw)} dots + ${fmt(allBonus)} bonus`:`${fmt(allRaw)} dots`;
+
   document.getElementById('tallyNum').textContent=S.todayDots;
   document.getElementById('streakVal').textContent=S.streak;
   document.getElementById('streakBig').textContent=S.streak;
@@ -2214,50 +2268,38 @@ function renderRecap(){
   const weekMins=(S.weekMins||0)+(S.todayMins||0);
   const todayMins=S.todayMins||0;
   const allMins=S.allMins||0;
+  const allRaw=S.allRawDots||0;
+  const allBonus=S.allBonus||0;
 
   document.getElementById('recapWrap').innerHTML=`
     <div class="recap-card">
       <div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:12px">This Week</div>
       <div class="recap-stats">
-        <div class="recap-stat">
-          <div class="recap-stat-val">${wk.toLocaleString()}</div>
-          <div class="recap-stat-lbl">Total dots</div>
-        </div>
-        <div class="recap-stat">
-          <div class="recap-stat-val">${best}</div>
-          <div class="recap-stat-lbl">Best day</div>
-        </div>
-        <div class="recap-stat">
-          <div class="recap-stat-val">${S.streak}</div>
-          <div class="recap-stat-lbl">Streak 🔥</div>
-        </div>
-        <div class="recap-stat">
-          <div class="recap-stat-val">${days}</div>
-          <div class="recap-stat-lbl">Active days</div>
-        </div>
+        <div class="recap-stat"><div class="recap-stat-val">${wk.toLocaleString()}</div><div class="recap-stat-lbl">Total pts</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${best}</div><div class="recap-stat-lbl">Best day</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${S.streak}</div><div class="recap-stat-lbl">Streak 🔥</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${days}</div><div class="recap-stat-lbl">Active days</div></div>
+      </div>
+
+      <div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin:14px 0 10px">Lifetime Stats</div>
+      <div class="recap-stats">
+        <div class="recap-stat"><div class="recap-stat-val">${fmt(S.allDots)}</div><div class="recap-stat-lbl">Total pts</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${fmt(allRaw)}</div><div class="recap-stat-lbl">Dots collected</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${fmt(allBonus)}</div><div class="recap-stat-lbl">Bonus pts</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${fmtMins(allMins)}</div><div class="recap-stat-lbl">Time walked</div></div>
       </div>
 
       <div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin:14px 0 10px">Time Walked</div>
       <div class="recap-stats">
-        <div class="recap-stat">
-          <div class="recap-stat-val">${fmtMins(todayMins)}</div>
-          <div class="recap-stat-lbl">Today</div>
-        </div>
-        <div class="recap-stat">
-          <div class="recap-stat-val">${fmtMins(weekMins)}</div>
-          <div class="recap-stat-lbl">This week</div>
-        </div>
-        <div class="recap-stat" style="grid-column:span 2">
-          <div class="recap-stat-val">${fmtMins(allMins)}</div>
-          <div class="recap-stat-lbl">All time</div>
-        </div>
+        <div class="recap-stat"><div class="recap-stat-val">${fmtMins(todayMins)}</div><div class="recap-stat-lbl">Today</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${fmtMins(weekMins)}</div><div class="recap-stat-lbl">This week</div></div>
       </div>
 
       <button class="share-btn" onclick="shareRecap()" style="margin-top:14px">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>Share My Week
       </button>
-    </div>`;
-}
+    </div>`
+;}
 
 function shareRecap(){
   const wh=S.weekHistory||[];
@@ -2331,7 +2373,8 @@ function doMidnightReset(){
   // Reset daily values
   S.todayDots=0;S.eatenIds={};S.collectedToday=[];S.walkedToday=false;
   S.day=toDay();S.speedRunStart=null;S.speedRunDots=0;
-  S.todayMins=0; // reset daily minutes
+  S.todayMins=0;
+  S.todayRawDots=0; S.todayBonus=0;
 
   // Reset daily challenges
   ['c1','c_eb','c_no','c_sr'].forEach(id=>{
@@ -2368,10 +2411,21 @@ function scheduleMidnight(){
   },ms+1000);
 }
 
-// Also check for day change when app comes back to foreground
+// When app comes back to foreground — check date reset AND resume GPS if walking
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible' && S.day !== toDay()){
-    doMidnightReset();
+  if(document.visibilityState==='visible'){
+    // Check for midnight reset
+    if(S.day !== toDay()) doMidnightReset();
+    // Resume GPS watch if walk was active but got interrupted
+    if(tracking && watchId===null){
+      startWatch();
+      showToast(ICO.walk,'GPS resumed!');
+    }
+    // Re-center map on player
+    if(tracking && playerLat!==null && map){
+      mapFollowing=true;
+      map.easeTo({center:[playerLng,playerLat],zoom:16,duration:800});
+    }
   }
 });
 

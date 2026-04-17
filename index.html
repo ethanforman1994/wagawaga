@@ -1019,7 +1019,6 @@ const LANDMARKS=[
   {name:'Washington Sq',lat:40.7308,lng:-73.9973,pts:30,emoji:null},
   {name:'Rockefeller Ctr',lat:40.7587,lng:-73.9787,pts:35,emoji:null},
   {name:'Grand Central',lat:40.7527,lng:-73.9772,pts:40,emoji:null},
-  {name:'Friday at Formans',lat:40.7392,lng:-73.9946,pts:25,emoji:'👨‍🍳'},
 ];
 const FRIENDS_CFG=[];
 
@@ -1259,7 +1258,7 @@ function refreshBattleGL(){
 function showBattleDots(){
   if(map.getLayer('battle-uneaten')) map.setLayoutProperty('battle-uneaten','visibility','visible');
   if(map.getLayer('battle-eaten'))   map.setLayoutProperty('battle-eaten','visibility','visible');
-  ['dots-reg','dots-beer','dots-gold','dots-lm','dots-lm-emoji','dots-eaten'].forEach(l=>{
+  ['dots-reg','dots-gold','dots-lm','dots-lm-emoji','dots-eaten'].forEach(l=>{
     if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','none');
   });
 }
@@ -1267,7 +1266,7 @@ function showBattleDots(){
 function hideBattleDots(){
   if(map.getLayer('battle-uneaten')) map.setLayoutProperty('battle-uneaten','visibility','none');
   if(map.getLayer('battle-eaten'))   map.setLayoutProperty('battle-eaten','visibility','none');
-  ['dots-reg','dots-beer','dots-gold','dots-lm','dots-lm-emoji','dots-eaten'].forEach(l=>{
+  ['dots-reg','dots-gold','dots-lm','dots-lm-emoji','dots-eaten'].forEach(l=>{
     if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','visible');
   });
 }
@@ -1544,8 +1543,6 @@ function pushGL(){
   }
   map.addSource('dots',{type:'geojson',data:gj});
 
-  const isBeerDay=(()=>{const d=new Date();return d.getMonth()===3&&d.getDate()===17;})();
-
   // Eaten (hollow outline)
   map.addLayer({id:'dots-eaten',type:'circle',source:'dots',
     filter:['==',['get','eaten'],true],
@@ -1556,28 +1553,16 @@ function pushGL(){
       'circle-stroke-color':'rgba(255,255,255,0.12)'
     }});
 
-  // Regular dots — always circle, visible on non-beer days
+  // Regular dots (teal)
   map.addLayer({id:'dots-reg',type:'circle',source:'dots',
     filter:['all',['==',['get','type'],'regular'],['==',['get','eaten'],false]],
     paint:{
       'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],
       'circle-color':'#0EB8A0',
-      'circle-opacity': isBeerDay ? 0 : 0.9,
-      'circle-stroke-width': isBeerDay ? 0 : 1,
+      'circle-opacity':0.9,
+      'circle-stroke-width':1,
       'circle-stroke-color':'rgba(255,255,255,0.18)'
     }});
-
-  // Beer emoji layer — April 17th only
-  if(isBeerDay){
-    map.addLayer({id:'dots-beer',type:'symbol',source:'dots',
-      filter:['all',['==',['get','type'],'regular'],['==',['get','eaten'],false]],
-      layout:{
-        'text-field':'🍺',
-        'text-size':['interpolate',['linear'],['zoom'],13,10,16,18,19,26],
-        'text-allow-overlap':true,
-        'text-ignore-placement':true,
-      }});
-  }
 
   // Golden dots
   map.addLayer({id:'dots-gold',type:'circle',source:'dots',

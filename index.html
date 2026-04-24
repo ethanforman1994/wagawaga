@@ -927,7 +927,8 @@ function buildRoadCache(){
 }
 
 function nearRoad(lat,lng){
-  if(!roadCacheBuilt)return true;
+  // If cache not built — don't place dots at all, wait for proper cache
+  if(!roadCacheBuilt) return false;
   const g=snapGrid(lat,lng);
   for(let dl=-1;dl<=1;dl++)for(let dg=-1;dg<=1;dg++){
     const tl=Math.round((g.lat+dl*GRID_LAT)*1e6)/1e6,tg=Math.round((g.lng+dg*GRID_LNG)*1e6)/1e6;
@@ -959,7 +960,7 @@ const partnerMarkers={};
 function spawnPartners(lat,lng){
   PARTNERS.forEach(p=>{
     if(partnerMarkers[p.id])return;
-    if(hav(lat,lng,p.lat,p.lng)>8000)return; // 8km radius
+    // Show all partner locations regardless of distance — they're landmarks
 
     const el=document.createElement('div');
     el.className='partner-dot';
@@ -1067,7 +1068,7 @@ function checkPartnerCollect(lat,lng){
 function spawnLM(lat,lng){
   LANDMARKS.forEach((lm,i)=>{
     const id=`lm_${i}`;if(DOTS[id])return;
-    if(hav(lat,lng,lm.lat,lm.lng)>6000)return;
+    // Show all landmarks always
     DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name};
   });
   refreshGL();
@@ -1395,7 +1396,16 @@ function initMap(lat,lng){
     // GL dots
     initGL();
     // Spawn after tiles load
-    setTimeout(()=>{spawnDots(lat,lng);spawnLM(lat,lng);spawnPartners(lat,lng);refreshGL();updateTrail();},1500);
+    // Wait for map to fully render all tiles before spawning dots
+    // 'idle' fires when map has no pending tiles — guaranteed road data available
+    map.once('idle',()=>{
+      buildRoadCache();
+      spawnDots(lat,lng);
+      spawnLM(lat,lng);
+      spawnPartners(lat,lng);
+      refreshGL();
+      updateTrail();
+    });
     updateUI();renderLB('day');renderTerr();renderCh();renderRecap();renderBattle();
   });
 }
@@ -1489,7 +1499,14 @@ function startWatch(){
     if(!startWatch._last)startWatch._last={lat,lng};
     if(hav(lat,lng,startWatch._last.lat,startWatch._last.lng)>180){
       startWatch._last={lat,lng};
-      setTimeout(()=>{roadCacheBuilt=false;buildRoadCache();spawnDots(lat,lng);spawnLM(lat,lng);spawnPartners(lat,lng);},900);
+      // Wait for new tiles to render before rebuilding road cache
+      map.once('idle',()=>{
+        roadCacheBuilt=false;
+        buildRoadCache();
+        spawnDots(lat,lng);
+        spawnLM(lat,lng);
+        spawnPartners(lat,lng);
+      });
     }
   },()=>setGPS('error','GPS lost'),{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
 }

@@ -29,17 +29,31 @@
   --sb:env(safe-area-inset-bottom,0px);
   --sh:230px;
 }
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
-.shell{position:relative;height:100vh;max-width:430px;margin:0 auto;overflow:hidden}
+html,body{
+  height:100%;
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Outfit',sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+/* Shell is a fixed overlay — no overflow:hidden that would clip WebGL */
+.shell{
+  position:fixed;
+  inset:0;
+  max-width:430px;
+  margin:0 auto;
+  pointer-events:none; /* let map receive touches */
+}
+.shell>*{pointer-events:all}
 
-/* Map must be outside shell overflow context to render in Safari/iOS */
+/* Map fills the whole viewport — outside any overflow constraints */
 #map-wrap{position:fixed;inset:0;z-index:0}
 #map{position:absolute;inset:0;width:100%;height:100%}
 .mapboxgl-ctrl-logo{display:none!important}
 .mapboxgl-ctrl-bottom-right{bottom:calc(var(--sh) + 10px)!important;right:10px!important;z-index:5!important}
 .mapboxgl-ctrl-attrib{background:rgba(11,14,20,0.75)!important;border-radius:6px!important}
 
-.ui{position:fixed;inset:0;z-index:10;pointer-events:none;max-width:430px;margin:0 auto}
+.ui{position:fixed;inset:0;z-index:10;pointer-events:none;max-width:430px;left:50%;transform:translateX(-50%)}
 .ui>*{pointer-events:all}
 
 /* TOPBAR */
@@ -635,7 +649,7 @@ function centerOnTerritory(name){
 
 <script>
 /* CONFIG */
-const TOKEN     = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbnZwdTNxcjAxNWYydG9razNwczlueDgifQ.h4r5WT2jyr93yWdzuigUAA';
+const TOKEN     = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
 const COLLECT_M = 18;
 const SPAWN_M   = 600;
 const GRID_LAT  = 0.00022;
@@ -1213,6 +1227,139 @@ function updateTrail(){
 }
 
 /* MAP INIT */
+/* ── Canvas fallback map ──────────────────────────────────
+   Renders a NYC-style dark grid when Mapbox tiles fail.
+   Dots still work — just no real street map underneath.
+─────────────────────────────────────────────────────── */
+let fallbackCanvas = null;
+let fallbackCtx = null;
+let usingFallback = false;
+let fallbackPlayerLat = null, fallbackPlayerLng = null;
+
+function showCanvasFallback(){
+  if(usingFallback) return;
+  usingFallback = true;
+
+  // Hide the broken mapbox canvas
+  const mapEl = document.getElementById('map');
+  mapEl.innerHTML = '';
+
+  // Create our own canvas
+  const canvas = document.createElement('canvas');
+  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  mapEl.appendChild(canvas);
+  fallbackCanvas = canvas;
+  fallbackCtx = canvas.getContext('2d');
+
+  drawFallbackMap();
+
+  // Re-spawn dots on canvas (no GL layers, use HTML markers instead)
+  spawnFallbackDots();
+
+  showToast(ICO.warn, 'Map tiles unavailable — using local map');
+}
+
+function drawFallbackMap(){
+  if(!fallbackCtx) return;
+  const W = fallbackCanvas.width, H = fallbackCanvas.height;
+  const ctx = fallbackCtx;
+
+  ctx.fillStyle = '#0D1117'; ctx.fillRect(0,0,W,H);
+
+  // Atmosphere
+  const atm = ctx.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,W*.7);
+  atm.addColorStop(0,'rgba(240,180,41,0.025)'); atm.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle=atm; ctx.fillRect(0,0,W,H);
+
+  const avW=W/9, stH=H/18;
+
+  // Blocks
+  for(let a=0;a<8;a++) for(let s=0;s<17;s++){
+    const inPark=a<4.6&&s<7;
+    ctx.fillStyle=inPark?'rgba(10,28,8,0.9)':'rgba(14,17,26,1)';
+    ctx.beginPath(); ctx.roundRect(a*avW+2,s*stH+2,avW-4,stH-4,2); ctx.fill();
+  }
+
+  // Park
+  ctx.fillStyle='rgba(8,22,6,0.93)';
+  ctx.beginPath(); ctx.roundRect(avW*.85,stH*.85,avW*3.85,stH*6.3,3); ctx.fill();
+  ctx.fillStyle='rgba(40,110,32,0.35)'; ctx.font='500 10px Outfit';
+  ctx.textAlign='center'; ctx.fillText('Central Park',avW*2.75,stH*4);
+
+  // Streets
+  for(let a=0;a<=9;a++){
+    ctx.strokeStyle=[0,2,4,6,8].includes(a)?'rgba(255,255,255,0.065)':'rgba(255,255,255,0.032)';
+    ctx.lineWidth=[0,2,4,6,8].includes(a)?2.5:1.5;
+    ctx.beginPath(); ctx.moveTo(a*avW,0); ctx.lineTo(a*avW,H); ctx.stroke();
+  }
+  for(let s=0;s<=18;s++){
+    ctx.strokeStyle=s%3===0?'rgba(255,255,255,0.05)':'rgba(255,255,255,0.022)';
+    ctx.lineWidth=s%3===0?2:1;
+    ctx.beginPath(); ctx.moveTo(0,s*stH); ctx.lineTo(W,s*stH); ctx.stroke();
+  }
+
+  // Labels
+  const avNames=['W End','Broadway','Amsterdam','Columbus','CPW','5th','Madison','Park','Lex'];
+  ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.font='400 8px Outfit'; ctx.textAlign='center';
+  avNames.forEach((n,i)=>ctx.fillText(n,(i+.5)*avW,H-5));
+
+  // Player pin in centre
+  const px=W/2, py=H/2, PR=18;
+  ctx.shadowColor='rgba(240,180,41,0.6)'; ctx.shadowBlur=20;
+  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(px,py,PR+3,0,Math.PI*2); ctx.fill();
+  const pg=ctx.createRadialGradient(px-4,py-4,0,px,py,PR);
+  pg.addColorStop(0,'#FFE566'); pg.addColorStop(1,'#F0B429');
+  ctx.fillStyle=pg; ctx.beginPath(); ctx.arc(px,py,PR,0,Math.PI*2); ctx.fill();
+  ctx.shadowBlur=0;
+  ctx.fillStyle='rgba(0,0,0,0.65)'; ctx.font='800 13px Outfit';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(S.initials||'?',px,py);
+}
+
+function spawnFallbackDots(){
+  // Place simple HTML dot markers for fallback mode
+  const mapEl = document.getElementById('map');
+  const W = fallbackCanvas.width, H = fallbackCanvas.height;
+  const avW=W/9, stH=H/18;
+
+  for(let a=1;a<=8;a++) for(let s=1;s<=17;s++){
+    const inPark=a<4.6&&s<7;
+    if(inPark&&Math.random()<0.87) continue;
+    const x=a*avW+(Math.random()-.5)*8;
+    const y=s*stH+(Math.random()-.5)*6;
+    const id=`fd_${a}_${s}`;
+    if(S.eatenIds[id]) continue;
+
+    const dot=document.createElement('div');
+    const golden=Math.random()<0.04;
+    dot.style.cssText=`position:absolute;left:${x}px;top:${y}px;
+      width:${golden?14:10}px;height:${golden?14:10}px;
+      border-radius:50%;
+      background:${golden?'#F0B429':'#0EB8A0'};
+      border:${golden?'2px solid #FFD166':'1px solid rgba(255,255,255,0.2)'};
+      box-shadow:0 0 ${golden?12:6}px ${golden?'rgba(240,180,41,0.6)':'rgba(14,184,160,0.4)'};
+      transform:translate(-50%,-50%);
+      cursor:pointer;z-index:5`;
+    dot.addEventListener('click',()=>{
+      if(S.eatenIds[id]) return;
+      S.eatenIds[id]=true;
+      const pts=golden?10:1;
+      S.todayDots+=pts;S.weekDots+=pts;S.allDots+=pts;S.walkedToday=true;
+      save();updateUI();
+      dot.style.opacity='0.15';dot.style.boxShadow='none';
+      burst(null,null,'regular',{screenX:x,screenY:y});
+      if(golden)showToast(ICO.star,`Golden dot! +${pts} pts`);
+    });
+    mapEl.appendChild(dot);
+    DOTS[id]={id,lat:playerLat||40.7549,lng:playerLng||-73.984,type:golden?'golden':'regular',pts:golden?10:1,label:null};
+  }
+}
+
+// Override burst to accept screen coords directly
+const _origBurst = typeof burst !== 'undefined' ? burst : null;
+
 function initMap(lat,lng){
   map=new mapboxgl.Map({
     container:'map',
@@ -1223,12 +1370,22 @@ function initMap(lat,lng){
     failIfMajorPerformanceCaveat:false,
   });
 
-  // Handle map errors gracefully
+  // Detect map render failure and show canvas fallback
+  let mapLoaded = false;
+  setTimeout(()=>{
+    if(!mapLoaded){
+      console.warn('Mapbox failed to load — using canvas fallback');
+      showCanvasFallback();
+    }
+  }, 6000);
+
   map.on('error',(e)=>{
     console.warn('Mapbox error:',e);
+    if(!mapLoaded) showCanvasFallback();
   });
 
   map.on('load',()=>{
+    mapLoaded = true;
     // Player marker
     const el=document.createElement('div');el.className='player-el';
     el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${S.initials||'?'}</div>`;

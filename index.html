@@ -32,12 +32,14 @@
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
 .shell{position:relative;height:100vh;max-width:430px;margin:0 auto;overflow:hidden}
 
+/* Map must be outside shell overflow context to render in Safari/iOS */
+#map-wrap{position:fixed;inset:0;z-index:0}
 #map{position:absolute;inset:0;width:100%;height:100%}
 .mapboxgl-ctrl-logo{display:none!important}
-.mapboxgl-ctrl-bottom-right{bottom:calc(var(--sh) + 10px)!important;right:10px!important}
+.mapboxgl-ctrl-bottom-right{bottom:calc(var(--sh) + 10px)!important;right:10px!important;z-index:5!important}
 .mapboxgl-ctrl-attrib{background:rgba(11,14,20,0.75)!important;border-radius:6px!important}
 
-.ui{position:absolute;inset:0;z-index:10;pointer-events:none}
+.ui{position:fixed;inset:0;z-index:10;pointer-events:none;max-width:430px;margin:0 auto}
 .ui>*{pointer-events:all}
 
 /* TOPBAR */
@@ -100,7 +102,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 
 /* SHEET */
 .sheet{
-  position:absolute;bottom:0;left:0;right:0;
+  position:fixed;bottom:0;left:0;right:0;
+  max-width:430px;margin:0 auto;
   height:var(--sh);
   background:var(--glass);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
   border-top:1px solid var(--border2);border-radius:22px 22px 0 0;
@@ -321,12 +324,12 @@ function centerOnTerritory(name){
 }
 
 /* TOAST */
-.toast{position:absolute;top:calc(var(--st) + 80px);left:50%;transform:translateX(-50%) translateY(-12px);background:rgba(11,14,20,.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid var(--border2);border-radius:14px;padding:10px 14px;z-index:50;display:flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,.55);white-space:nowrap;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;min-width:200px}
+.toast{position:fixed;top:calc(var(--st) + 80px);left:50%;transform:translateX(-50%) translateY(-12px);background:rgba(11,14,20,.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid var(--border2);border-radius:14px;padding:10px 14px;z-index:50;display:flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,.55);white-space:nowrap;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;min-width:200px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast-icon{width:26px;height:26px;border-radius:8px;background:var(--glass2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 
 /* BURST */
-.burst-wrap{position:absolute;inset:0;pointer-events:none;z-index:25;overflow:hidden}
+.burst-wrap{position:fixed;inset:0;pointer-events:none;z-index:25;overflow:hidden}
 .burst{position:absolute;border-radius:50%;pointer-events:none;animation:bst .6s ease-out forwards}
 @keyframes bst{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--bx),var(--by)) scale(0);opacity:0}}
 .pop{position:absolute;font-size:14px;font-weight:900;pointer-events:none;animation:pop .75s ease-out forwards}
@@ -375,7 +378,7 @@ function centerOnTerritory(name){
 
 /* OFFER CARD */
 .offer-overlay{
-  position:absolute;inset:0;z-index:60;
+  position:fixed;inset:0;z-index:60;
   display:flex;align-items:flex-end;justify-content:center;
   padding:0 16px 100px;
   pointer-events:none;
@@ -465,8 +468,12 @@ function centerOnTerritory(name){
   <div class="perm-note">Your location is only used while the app is open and is never stored on a server.</div>
 </div>
 
-<div class="shell">
+<!-- Map rendered outside shell to avoid Safari overflow:hidden clipping -->
+<div id="map-wrap">
   <div id="map"></div>
+</div>
+
+<div class="shell">
   <div class="ui">
     <!-- Topbar -->
     <div class="topbar">
@@ -1207,7 +1214,20 @@ function updateTrail(){
 
 /* MAP INIT */
 function initMap(lat,lng){
-  map=new mapboxgl.Map({container:'map',style:'mapbox://styles/mapbox/dark-v11',center:[lng,lat],zoom:16,pitch:20,bearing:0,attributionControl:true});
+  map=new mapboxgl.Map({
+    container:'map',
+    style:'mapbox://styles/mapbox/dark-v11',
+    center:[lng,lat],
+    zoom:16,pitch:20,bearing:0,
+    attributionControl:true,
+    failIfMajorPerformanceCaveat:false,
+  });
+
+  // Handle map errors gracefully
+  map.on('error',(e)=>{
+    console.warn('Mapbox error:',e);
+  });
+
   map.on('load',()=>{
     // Player marker
     const el=document.createElement('div');el.className='player-el';

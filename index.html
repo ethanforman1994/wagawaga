@@ -900,58 +900,107 @@ function buildGJ(){
 
 function refreshGL(){if(!glReady||!map||!map.getSource('dots'))return;map.getSource('dots').setData(buildGJ());}
 
-/* ROAD CACHE */
-const roadCache=new Set();
-let roadCacheBuilt=false;
+/* ═══════════════════════════════════════════════════════
+   DOT SPAWNING — place dots directly on road geometries
+   
+   Instead of a grid + road filter (which is unreliable),
+   we walk along each road line segment and place a dot
+   every DOT_INTERVAL metres. This guarantees dots only
+   appear on actual streets, paths, and sidewalks.
+═══════════════════════════════════════════════════════ */
+const DOT_INTERVAL = 25; // metres between dots on a road
 
-function buildRoadCache(){
-  if(!map||!map.isStyleLoaded())return;
-  const all=map.getStyle().layers.map(l=>l.id);
-  const wk=all.filter(id=>{const l=id.toLowerCase();return l.includes('road')||l.includes('path')||l.includes('pedestrian')||l.includes('footway')||l.includes('walk')||l.includes('cycleway')||l.includes('steps')||l.includes('trail');});
-  if(!wk.length)return;
-  const EX=new Set(['motorway','motorway_link','trunk','trunk_link','ferry']);
-  let features=[];
-  try{features=map.queryRenderedFeatures(undefined,{layers:wk});}catch(e){}
-  const W=map.getCanvas().width/(devicePixelRatio||1),H=map.getCanvas().height/(devicePixelRatio||1);
-  [[W*.2,H*.2],[W*.5,H*.2],[W*.8,H*.2],[W*.2,H*.5],[W*.5,H*.5],[W*.8,H*.5],[W*.2,H*.8],[W*.5,H*.8],[W*.8,H*.8]].forEach(pt=>{
-    try{map.queryRenderedFeatures(pt,{layers:wk}).forEach(f=>{if(!features.find(x=>x.id===f.id))features.push(f);});}catch(e){}
+// Exclude non-walkable road classes
+const ROAD_EXCLUDE = new Set([
+  'motorway','motorway_link','trunk','trunk_link',
+  'ferry','aerialway','rail','subway'
+]);
+
+// Interpolate a point along a line segment at distance t (0-1)
+function lerpCoord(c1, c2, t){
+  return [c1[0]+(c2[0]-c1[0])*t, c1[1]+(c2[1]-c1[1])*t];
+}
+
+// Distance between two [lng,lat] coords in metres
+function coordDistM(c1, c2){
+  return hav(c1[1],c1[0],c2[1],c2[0]);
+}
+
+/* SPAWN DOTS — directly on rendered road geometries */
+function spawnDots(lat, lng){
+  if(!map||!glReady) return;
+  if(!map.isStyleLoaded()) return;
+
+  // Find all walkable road layers in the current style
+  const allLayers = map.getStyle().layers.map(l=>l.id);
+  const walkLayers = allLayers.filter(id=>{
+    const l = id.toLowerCase();
+    return l.includes('road') || l.includes('path') || l.includes('pedestrian') ||
+           l.includes('footway') || l.includes('walk') || l.includes('cycleway') ||
+           l.includes('steps') || l.includes('trail') || l.includes('sidewalk');
   });
+
+  if(!walkLayers.length){
+    console.warn('No walkable layers found in map style');
+    return;
+  }
+
+  // Query all road features currently visible on screen
+  let features = [];
+  try{
+    features = map.queryRenderedFeatures(undefined, {layers: walkLayers});
+  }catch(e){ return; }
+
+  if(!features.length) return;
+
+  let added = 0;
+  const seen = new Set(); // deduplicate within this spawn call
+
   features.forEach(f=>{
-    if(!f.geometry)return;
-    const cls=(f.properties?.class||f.properties?.type||'').toLowerCase();
-    if(EX.has(cls))return;
-    const lines=f.geometry.type==='LineString'?[f.geometry.coordinates]:f.geometry.type==='MultiLineString'?f.geometry.coordinates:[];
-    lines.forEach(coords=>coords.forEach(([lng,lat])=>{const g=snapGrid(lat,lng);roadCache.add(`${g.lat}_${g.lng}`);}));
+    if(!f.geometry) return;
+
+    // Skip non-walkable road classes
+    const cls = (f.properties?.class||f.properties?.type||'').toLowerCase();
+    if(ROAD_EXCLUDE.has(cls)) return;
+
+    // Get all line segments from this feature
+    const lines = f.geometry.type === 'LineString'  ? [f.geometry.coordinates] :
+                  f.geometry.type === 'MultiLineString' ? f.geometry.coordinates : [];
+
+    lines.forEach(coords=>{
+      if(coords.length < 2) return;
+
+      // Walk along each segment, placing a dot every DOT_INTERVAL metres
+      for(let i=0; i<coords.length-1; i++){
+        const c1 = coords[i];
+        const c2 = coords[i+1];
+        const segLen = coordDistM(c1, c2);
+        if(segLen < 1 || segLen > 2000) continue; // skip tiny/huge segments
+
+        const steps = Math.max(1, Math.floor(segLen / DOT_INTERVAL));
+
+        for(let s=0; s<=steps; s++){
+          const t = s / steps;
+          const [dLng, dLat] = lerpCoord(c1, c2, t);
+
+          // Skip if outside spawn radius
+          if(hav(lat, lng, dLat, dLng) > SPAWN_M) continue;
+
+          // Snap to grid for stable IDs
+          const id = dotId(dLat, dLng);
+          if(DOTS[id] || seen.has(id)) continue;
+          seen.add(id);
+
+          const {type, pts} = dotType(id);
+          DOTS[id] = {id, lat:dLat, lng:dLng, type, pts, label:null};
+          added++;
+        }
+      }
+    });
   });
-  roadCacheBuilt=roadCache.size>0;
-}
 
-function nearRoad(lat,lng){
-  // If cache not built — don't place dots at all, wait for proper cache
-  if(!roadCacheBuilt) return false;
-  const g=snapGrid(lat,lng);
-  for(let dl=-1;dl<=1;dl++)for(let dg=-1;dg<=1;dg++){
-    const tl=Math.round((g.lat+dl*GRID_LAT)*1e6)/1e6,tg=Math.round((g.lng+dg*GRID_LNG)*1e6)/1e6;
-    if(roadCache.has(`${tl}_${tg}`))return true;
-  }
-  return false;
-}
-
-/* SPAWN DOTS */
-function spawnDots(lat,lng){
-  if(!map||!glReady)return;
-  buildRoadCache();
-  const latS=Math.ceil(SPAWN_M/(GRID_LAT*111320)),lngS=Math.ceil(SPAWN_M/(GRID_LNG*111320));
-  const o=snapGrid(lat,lng);let added=0;
-  for(let dl=-latS;dl<=latS;dl++)for(let dg=-lngS;dg<=lngS;dg++){
-    const cLat=Math.round((o.lat+dl*GRID_LAT)*1e6)/1e6,cLng=Math.round((o.lng+dg*GRID_LNG)*1e6)/1e6;
-    if(hav(lat,lng,cLat,cLng)>SPAWN_M)continue;
-    if(!nearRoad(cLat,cLng))continue;
-    const id=dotId(cLat,cLng);if(DOTS[id])continue;
-    const{type,pts}=dotType(id);DOTS[id]={id,lat:cLat,lng:cLng,type,pts,label:null};added++;
-  }
-  if(added>0)refreshGL();
-  updateNearby(lat,lng);
+  if(added > 0) refreshGL();
+  updateNearby(lat, lng);
 }
 
 // ── PARTNER DOTS — HTML markers (not GL) for custom branding ──
@@ -1499,10 +1548,8 @@ function startWatch(){
     if(!startWatch._last)startWatch._last={lat,lng};
     if(hav(lat,lng,startWatch._last.lat,startWatch._last.lng)>180){
       startWatch._last={lat,lng};
-      // Wait for new tiles to render before rebuilding road cache
+      // Wait for new tiles to render then spawn dots on roads
       map.once('idle',()=>{
-        roadCacheBuilt=false;
-        buildRoadCache();
         spawnDots(lat,lng);
         spawnLM(lat,lng);
         spawnPartners(lat,lng);

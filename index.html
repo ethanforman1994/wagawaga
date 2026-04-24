@@ -1407,7 +1407,7 @@ function checkTopDog(){
   const all=[...LB.day,{score:S.todayDots}].sort((a,b)=>b.score-a.score);
   if(all[0].score===S.todayDots&&S.todayDots>0){
     const _c10=S.challenges?.find(c=>c.id==='c10');
-    if(_c10&&!_c10.done){_c10.prog=1;_c10.done=true;showToast(ICO.trophy,'Top Dog! You're #1 today! +1000 pts');}
+    if(_c10&&!_c10.done){_c10.prog=1;_c10.done=true;showToast(ICO.trophy,"Top Dog! You are #1 today! +1000 pts");}
   }
 }
 

@@ -43,9 +43,22 @@ onAuthStateChanged(auth, user=>{
     fbUid = user.uid;
     window._fbUid = fbUid;
     document.getElementById('phoneAuthWrap').style.display='none';
-    if(window._startApp) window._startApp();
     loadCloudProfile(fbUid);
     subscribeLeaderboard();
+    // Wait for main script to define _startApp before calling it
+    if(window._startApp){
+      window._startApp();
+    } else {
+      // Poll until _startApp is ready (handles module load race condition)
+      const interval = setInterval(()=>{
+        if(window._startApp){
+          clearInterval(interval);
+          window._startApp();
+        }
+      }, 100);
+      // Hard timeout — force location request after 3s regardless
+      setTimeout(()=>{ clearInterval(interval); if(window._startApp) window._startApp(); }, 3000);
+    }
   }
 });
 

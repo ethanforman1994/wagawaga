@@ -12,6 +12,218 @@
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getAuth, RecaptchaVerifier, signInWithPhoneNumber, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, doc, setDoc, getDoc, getDocs, collection, query, where, orderBy, limit, onSnapshot, serverTimestamp, writeBatch } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDb0zMOhz9EXmODWjLQPbtKIQ1agiXuwMA",
+  authDomain: "wagawaga-walk.firebaseapp.com",
+  projectId: "wagawaga-walk",
+  storageBucket: "wagawaga-walk.firebasestorage.app",
+  messagingSenderId: "60558352314",
+  appId: "1:60558352314:web:5cdb40357d81d4bfc60783",
+  measurementId: "G-BFYBV5K1XK"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const auth  = getAuth(fbApp);
+const db    = getFirestore(fbApp);
+window._fbDb = db;
+window._fbFirestore = {getDocs, query, collection, where, orderBy, limit, doc, setDoc, getDoc, serverTimestamp, onSnapshot, writeBatch};
+
+let fbUid = null;
+let confirmationResult = null;
+let recaptchaVerifier = null;
+
+// ── Auth state listener ──────────────────────────────────────
+onAuthStateChanged(auth, user=>{
+  if(user){
+    fbUid = user.uid;
+    window._fbUid = fbUid;
+    document.getElementById('phoneAuthWrap').style.display='none';
+    if(window._startApp) window._startApp();
+    loadCloudProfile(fbUid);
+    subscribeLeaderboard();
+  }
+});
+
+// ── Setup invisible reCAPTCHA ────────────────────────────────
+function setupRecaptcha(){
+  if(recaptchaVerifier) return;
+  recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+    size: 'invisible',
+    callback: ()=>{}
+  });
+  recaptchaVerifier.render();
+}
+
+function setPhoneState(state){
+  document.getElementById('phoneStep').style.display   = state==='phone'                          ? 'flex' : 'none';
+  document.getElementById('codeStep').style.display    = state==='code'                           ? 'flex' : 'none';
+  document.getElementById('sendingStep').style.display = (state==='sending'||state==='verifying') ? 'flex' : 'none';
+  document.getElementById('sendingLbl').textContent    = state==='verifying' ? 'Verifying…' : 'Sending code…';
+  document.getElementById('phoneError').style.display  = 'none';
+}
+window._setPhoneState = setPhoneState;
+
+function showPhoneError(msg){
+  setPhoneState('phone');
+  const el = document.getElementById('phoneError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+// ── Send SMS code ────────────────────────────────────────────
+window._sendCode = async function(){
+  const raw = document.getElementById('phoneInput').value.trim();
+  if(!raw){ showPhoneError('Please enter your phone number.'); return; }
+
+  // Format to E.164 — handle 10 or 11 digit US numbers
+  let phone = raw.replace(/\D/g,'');
+  if(phone.length===10)                        phone = '+1' + phone;
+  else if(phone.length===11&&phone[0]==='1')   phone = '+'  + phone;
+  else                                         phone = '+'  + phone;
+
+  setPhoneState('sending');
+  try{
+    setupRecaptcha();
+    confirmationResult = await signInWithPhoneNumber(auth, phone, recaptchaVerifier);
+    setPhoneState('code');
+  }catch(e){
+    console.warn('SMS error', e.code, e.message);
+    recaptchaVerifier = null; // reset so reCAPTCHA can retry
+    if(e.code==='auth/invalid-phone-number')  showPhoneError('Invalid number. Enter your 10-digit US number.');
+    else if(e.code==='auth/too-many-requests') showPhoneError('Too many attempts. Wait a few minutes and try again.');
+    else if(e.code==='auth/captcha-check-failed') showPhoneError('Security check failed. Please refresh and try again.');
+    else showPhoneError(`Error: ${e.message}`);
+  }
+};
+
+// ── Verify SMS code ──────────────────────────────────────────
+window._verifyCode = async function(){
+  const code = document.getElementById('codeInput').value.trim();
+  if(!code||code.length<6){ showPhoneError('Enter the 6-digit code from your text.'); return; }
+  setPhoneState('verifying');
+  try{
+    await confirmationResult.confirm(code);
+    // onAuthStateChanged fires automatically and handles the rest
+  }catch(e){
+    console.warn('Code error', e.code, e.message);
+    if(e.code==='auth/invalid-verification-code') showPhoneError('Wrong code — please try again.');
+    else if(e.code==='auth/code-expired')          showPhoneError('Code expired. Go back and request a new one.');
+    else showPhoneError(`Error: ${e.message}`);
+    setPhoneState('code');
+  }
+};
+
+// ── Load cloud profile ───────────────────────────────────────
+async function loadCloudProfile(uid){
+  try{
+    const snap = await getDoc(doc(db,'users',uid));
+    if(snap.exists()){
+      const d = snap.data();
+      const isToday = d.todayDate === window._toDay();
+      if(isToday){
+        // Same day — restore scores and eaten dots from cloud
+        window._S.todayDots = d.todayDots || window._S.todayDots;
+        if(d.eatenIds && typeof d.eatenIds === 'object'){
+          window._S.eatenIds = Object.assign({}, d.eatenIds, window._S.eatenIds);
+        }
+      } else {
+        // New day — reset daily values and push clean slate to Firebase
+        window._S.todayDots  = 0;
+        window._S.eatenIds   = {};
+        window._S.walkedToday = false;
+        window._S.day = window._toDay();
+        if(window._S.challenges){
+          window._S.challenges.forEach(c=>{if(c.id==='c1'){c.prog=0;c.done=false;}});
+        }
+        // Update streak based on whether they walked yesterday
+        window._S.streak = d.walkedToday ? (d.streak||0)+1 : 0;
+        window._save();
+        // Push reset to Firebase so cloud is also updated
+        if(window._pushCloud) window._pushCloud();
+      }
+      window._S.weekDots    = d.weekDots    || window._S.weekDots;
+      window._S.allDots     = d.allDots     || window._S.allDots;
+      // Only restore streak from cloud if we didn't just recalculate it
+      if(isToday) window._S.streak = d.streak || window._S.streak;
+      window._S.displayName = d.displayName || window._S.displayName || '';
+      window._save();
+      window._updateUI();
+      window._updatePlayerPin();
+    } else {
+      promptDisplayName(uid);
+    }
+  }catch(e){ console.warn('loadCloudProfile error',e); }
+}
+
+// ── Prompt display name on first launch ─────────────────────
+function promptDisplayName(uid){
+  setTimeout(()=>{
+    const v = prompt('Enter your name for the leaderboard (e.g. "Jordan K."):');
+    const name = v ? v.trim().slice(0,20) : 'Anonymous';
+    window._S.displayName = name;
+    window._save();
+    window._pushCloud();
+    window._updateUI();
+  }, 1000);
+}
+
+// ── Push score to Firestore ──────────────────────────────────
+window._pushCloud = async function(){
+  if(!fbUid) return;
+  const S = window._S;
+  try{
+    // Only push eatenIds if they're from today — keeps doc size manageable
+    const eatenToday = S.day === window._toDay() ? S.eatenIds : {};
+    await setDoc(doc(db,'users',fbUid),{
+      displayName : S.displayName || 'Anonymous',
+      emoji       : window._getEmoji().emoji,
+      todayDots   : S.todayDots,
+      todayDate   : window._toDay(),
+      weekDots    : S.weekDots,
+      allDots     : S.allDots,
+      streak      : S.streak,
+      eatenIds    : eatenToday,
+      updatedAt   : serverTimestamp(),
+    },{merge:true});
+  }catch(e){ console.warn('pushCloud error',e); }
+};
+
+// ── Live leaderboard listener ────────────────────────────────
+const _lbUnsubs = {}; // track unsubscribe fns per period
+
+function subscribeLeaderboard(){
+  // Subscribe to all three periods upfront
+  const periods = [
+    {key:'day',  field:'todayDots'},
+    {key:'week', field:'weekDots'},
+    {key:'month',field:'allDots'},
+  ];
+  periods.forEach(({key,field})=>{
+    const q = query(collection(db,'users'), orderBy(field,'desc'), limit(10));
+    _lbUnsubs[key] = onSnapshot(q, snap=>{
+      const rows=[];
+      snap.forEach(d=>{
+        const data=d.data();
+        rows.push({uid:d.id,n:data.displayName||'Anonymous',emoji:data.emoji||'🐣',
+          score:data.todayDots||0,week:data.weekDots||0,all:data.allDots||0,
+          streak:data.streak||0,you:d.id===fbUid});
+      });
+      window._liveRowsByPeriod = window._liveRowsByPeriod||{};
+      window._liveRowsByPeriod[key] = rows;
+      // Only re-render if this is the currently visible period
+      if((window._lbPeriod||'day')===key && window._renderLB){
+        window._liveRows = rows;
+        window._renderLB(key);
+      }
+    });
+  });
+}
+</script>
 
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -27,43 +239,21 @@
   --green:#22C55E;--red:#EF4444;
   --st:env(safe-area-inset-top,0px);
   --sb:env(safe-area-inset-bottom,0px);
-  --sh:230px;
+  --sh:300px;
 }
-html,body{
-  height:100%;
-  background:var(--bg);
-  color:var(--text);
-  font-family:'Outfit',sans-serif;
-  -webkit-font-smoothing:antialiased;
-}
-/* Shell is a fixed overlay — no overflow:hidden that would clip WebGL */
-.shell{
-  position:fixed;
-  inset:0;
-  max-width:430px;
-  margin:0 auto;
-  pointer-events:none; /* let map receive touches */
-}
-.shell>*{pointer-events:all}
-
-/* Map fills the whole viewport — outside any overflow constraints */
-#map-wrap{position:fixed;inset:0;z-index:0}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit',sans-serif;overflow:hidden;-webkit-font-smoothing:antialiased}
+.shell{position:relative;height:100vh;max-width:430px;margin:0 auto;overflow:hidden}
 #map{position:absolute;inset:0;width:100%;height:100%}
 .mapboxgl-ctrl-logo{display:none!important}
-.mapboxgl-ctrl-bottom-right{bottom:calc(var(--sh) + 10px)!important;right:10px!important;z-index:5!important}
+.mapboxgl-ctrl-bottom-right{bottom:calc(var(--sh) + 10px)!important;right:10px!important}
 .mapboxgl-ctrl-attrib{background:rgba(11,14,20,0.75)!important;border-radius:6px!important}
 
-.ui{position:fixed;inset:0;z-index:10;pointer-events:none;max-width:430px;left:50%;transform:translateX(-50%)}
+.ui{position:absolute;inset:0;z-index:10;pointer-events:none}
 .ui>*{pointer-events:all}
 
 /* TOPBAR */
 .topbar{position:absolute;top:calc(var(--st) + 12px);left:14px;right:14px}
-.topbar-inner{
-  display:flex;align-items:center;gap:10px;
-  background:var(--glass);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
-  border:1px solid var(--border2);border-radius:18px;padding:10px 12px;
-  box-shadow:0 8px 32px rgba(0,0,0,.5);
-}
+.topbar-inner{display:flex;align-items:center;gap:10px;background:var(--glass);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid var(--border2);border-radius:18px;padding:10px 12px;box-shadow:0 8px 32px rgba(0,0,0,.5)}
 .brand{flex:1;display:flex;align-items:center;gap:9px}
 .brand-name{display:flex;align-items:center;font-size:16px;font-weight:900;letter-spacing:-.04em;line-height:1}
 .bn1{color:var(--text)}.bnsep{width:4px;height:4px;border-radius:50%;background:var(--gold);margin:0 4px 1px;display:inline-block}.bn2{color:var(--gold)}
@@ -79,6 +269,7 @@ html,body{
 .sp{flex:1;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:14px;padding:9px 8px 7px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,.3)}
 .sp .v{font-size:18px;font-weight:800;color:var(--gold);letter-spacing:-.5px;display:block;line-height:1}
 .sp .l{font-size:9px;font-weight:500;color:var(--text2);letter-spacing:.7px;text-transform:uppercase;margin-top:3px;display:block}
+.sp .l-sub{font-size:9px;color:var(--teal-light);margin-top:1px;display:block;letter-spacing:.2px}
 
 /* CHALLENGE BANNER */
 .ch-banner{position:absolute;top:calc(var(--st) + 150px);left:14px;right:14px;background:var(--glass);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--teal-border);border-radius:14px;padding:10px 14px;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,.3);cursor:pointer}
@@ -89,7 +280,7 @@ html,body{
 .cht-bar{height:100%;background:var(--teal);border-radius:2px;transition:width .4s}
 .ch-badge{background:var(--teal-dim);border:1px solid var(--teal-border);border-radius:8px;padding:3px 8px;font-size:10px;font-weight:700;color:var(--teal-light);flex-shrink:0}
 
-/* GPS */
+/* GPS / loading */
 .gps-badge{position:absolute;top:calc(var(--st) + 222px);left:14px;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border2);border-radius:12px;padding:6px 11px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:500;color:var(--text2)}
 .gps-badge.active{border-color:rgba(34,197,94,.3);color:var(--green)}
 .gps-badge.error{border-color:rgba(239,68,68,.3);color:var(--red)}
@@ -97,6 +288,10 @@ html,body{
 .gps-badge.active .gdot{animation:lp 1.5s infinite}
 .nearby-badge{position:absolute;top:calc(var(--st) + 222px);right:14px;background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border);border-radius:12px;padding:6px 11px;font-size:11px;font-weight:600;color:var(--text2)}
 .nearby-badge span{color:var(--gold)}
+
+/* DOT LOADING OVERLAY */
+#dotLoader{position:absolute;top:calc(var(--st) + 260px);left:50%;transform:translateX(-50%);background:var(--glass);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--border2);border-radius:12px;padding:7px 14px;font-size:11px;font-weight:600;color:var(--text2);white-space:nowrap;z-index:20;transition:opacity .4s}
+#dotLoader.gone{opacity:0;pointer-events:none}
 
 /* WALK BUTTON */
 .walk-wrap{position:absolute;bottom:calc(var(--sb) + var(--sh) + 16px);left:50%;transform:translateX(-50%);transition:bottom .35s cubic-bezier(.32,.72,0,1)}
@@ -115,25 +310,15 @@ html,body{
 .fab:active{transform:scale(.93)}
 
 /* SHEET */
-.sheet{
-  position:fixed;bottom:0;left:0;right:0;
-  max-width:430px;margin:0 auto;
-  height:var(--sh);
-  background:var(--glass);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);
-  border-top:1px solid var(--border2);border-radius:22px 22px 0 0;
-  z-index:30;display:flex;flex-direction:column;
-  box-shadow:0 -8px 48px rgba(0,0,0,.55);
-  overflow:hidden;
-  transition:height .35s cubic-bezier(.32,.72,0,1);
-}
+.sheet{position:absolute;bottom:0;left:0;right:0;height:var(--sh);background:var(--glass);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border-top:1px solid var(--border2);border-radius:22px 22px 0 0;z-index:30;display:flex;flex-direction:column;box-shadow:0 -8px 48px rgba(0,0,0,.55);overflow:visible;transition:height .35s cubic-bezier(.32,.72,0,1)}
 .sheet.collapsed{height:52px}
-.sheet.collapsed .sheet-nav,
-.sheet.collapsed .sheet-body{opacity:0;pointer-events:none}
-.sheet-handle{display:flex;flex-direction:column;align-items:center;padding:10px 0 4px;cursor:pointer;flex-shrink:0;user-select:none;-webkit-tap-highlight-color:rgba(0,0,0,0)}
+.sheet.collapsed .sheet-nav,.sheet.collapsed .sheet-body{opacity:0;pointer-events:none}
+.sheet-handle{display:flex;flex-direction:column;align-items:center;padding:10px 0 4px;cursor:pointer;flex-shrink:0;user-select:none;pointer-events:all;min-height:52px;justify-content:center;background:var(--glass);border-radius:22px 22px 0 0;position:relative;z-index:1}
 .handle-bar{width:36px;height:4px;background:rgba(255,255,255,.14);border-radius:2px}
 .handle-chev{margin-top:4px;transition:transform .3s}
 .sheet.collapsed .handle-chev{transform:rotate(180deg)}
-
+.sheet-nav{overflow:hidden}
+.sheet-body{overflow:hidden}
 .sheet-nav{display:flex;padding:6px 14px 0;gap:4px;flex-shrink:0;overflow-x:auto;scrollbar-width:none}
 .sheet-nav::-webkit-scrollbar{display:none}
 .snav{padding:5px 10px;border-radius:100px;font-size:11px;font-weight:600;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--text2);font-family:'Outfit',sans-serif;transition:all .18s;white-space:nowrap;flex-shrink:0;display:flex;align-items:center;gap:5px}
@@ -142,16 +327,68 @@ html,body{
 .snav.og svg{stroke:var(--gold)}
 .snav.ot{background:var(--teal-dim);border-color:var(--teal-border);color:var(--teal-light)}
 .snav.ot svg{stroke:var(--teal-light)}
-
 .sheet-body{flex:1;overflow:hidden;position:relative;min-height:0}
 .panel{position:absolute;inset:0;display:flex;flex-direction:column;transition:opacity .2s,transform .2s}
 .panel.hidden{opacity:0;pointer-events:none;transform:translateY(6px)}
 
 /* TODAY */
-.tally{padding:10px 16px 8px;display:flex;flex-direction:column;gap:9px}
-.tally-top{display:flex;align-items:baseline;gap:8px}
+.tally{padding:10px 16px 20px;display:flex;flex-direction:column;gap:9px;overflow-y:auto;flex:1;scrollbar-width:none}
+.tally::-webkit-scrollbar{display:none}
+.tally-top{display:flex;align-items:center;gap:16px}
 .tally-num{font-size:40px;font-weight:900;letter-spacing:-2px;color:var(--gold);line-height:1}
 .tally-lbl{font-size:12px;color:var(--text2)}
+
+/* GOAL RING */
+.goal-ring-wrap{position:relative;width:72px;height:72px;flex-shrink:0}
+.goal-ring-wrap svg{transform:rotate(-90deg)}
+.goal-ring-bg{fill:none;stroke:rgba(255,255,255,0.06);stroke-width:5}
+.goal-ring-fill{fill:none;stroke:var(--gold);stroke-width:5;stroke-linecap:round;transition:stroke-dashoffset .6s cubic-bezier(.4,0,.2,1)}
+.goal-ring-fill.done{stroke:var(--green)}
+.goal-ring-label{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.goal-ring-pct{font-size:13px;font-weight:800;color:var(--gold)}
+.goal-ring-pct.done{color:var(--green)}
+.goal-ring-sub{font-size:8px;color:var(--text3);margin-top:1px}
+
+/* BATTLE MODE NAV */
+.snav.ob{background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#f87171}
+.snav.ob svg{stroke:#f87171}
+
+/* BATTLE PANEL */
+.battle-wrap{padding:10px 14px 14px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;flex:1;scrollbar-width:none}
+.battle-wrap::-webkit-scrollbar{display:none}
+.battle-header{background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.2);border-radius:16px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.battle-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.battle-title{font-size:15px;font-weight:900;letter-spacing:-.3px}
+.battle-sub{font-size:10px;color:var(--text2);margin-top:2px}
+.battle-score-chip{background:rgba(239,68,68,0.12);border:1px solid rgba(239,68,68,0.25);border-radius:12px;padding:6px 12px;text-align:center;flex-shrink:0}
+.battle-score-val{font-size:22px;font-weight:900;color:#f87171;letter-spacing:-1px;line-height:1}
+.battle-score-lbl{font-size:9px;color:var(--text2);margin-top:2px;text-transform:uppercase;letter-spacing:.5px}
+.battle-timer-row{display:flex;flex-direction:column;gap:4px}
+.battle-timer-bar-bg{height:3px;background:rgba(255,255,255,.06);border-radius:2px;overflow:hidden}
+.battle-timer-bar{height:100%;background:#f87171;border-radius:2px;transition:width .5s}
+.battle-timer-lbl{font-size:10px;color:var(--text2)}
+.battle-lb{display:flex;flex-direction:column;gap:6px}
+.battle-row{display:flex;align-items:center;gap:10px;background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:10px 12px}
+.battle-row.you{border-color:rgba(239,68,68,0.3);background:rgba(239,68,68,0.05)}
+.battle-rank{font-size:11px;font-weight:700;color:var(--text3);width:20px;flex-shrink:0;text-align:center}
+.battle-row.you .battle-rank{color:#f87171}
+.battle-av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0}
+.battle-name{flex:1;font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.battle-dots{font-size:16px;font-weight:900;color:var(--text);letter-spacing:-.5px}
+.battle-dots-lbl{font-size:9px;color:var(--text3);margin-left:2px}
+.battle-mode-active .mapboxgl-canvas{filter:hue-rotate(320deg) saturate(1.2)}
+.walk-summary{position:absolute;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);opacity:0;pointer-events:none;transition:opacity .3s}
+.walk-summary.show{opacity:1;pointer-events:all}
+.ws-card{background:var(--slate-2);border:1px solid var(--border2);border-radius:28px 28px 0 0;padding:28px 24px 40px;width:100%;max-width:430px;transform:translateY(40px);transition:transform .35s cubic-bezier(.32,.72,0,1)}
+.walk-summary.show .ws-card{transform:translateY(0)}
+.ws-title{font-size:20px;font-weight:900;letter-spacing:-.5px;margin-bottom:4px}
+.ws-sub{font-size:12px;color:var(--text2);margin-bottom:20px}
+.ws-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}
+.ws-stat{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:16px;padding:14px}
+.ws-stat-val{font-size:26px;font-weight:900;color:var(--gold);letter-spacing:-1px;line-height:1}
+.ws-stat-lbl{font-size:10px;color:var(--text2);margin-top:4px;text-transform:uppercase;letter-spacing:.5px}
+.ws-stat.highlight{border-color:var(--gold-border);background:var(--gold-dim)}
+.ws-close{width:100%;padding:14px;border-radius:14px;border:none;background:var(--gold);color:#1a1200;font-family:'Outfit',sans-serif;font-weight:700;font-size:15px;cursor:pointer;-webkit-appearance:none}
 .scard{display:flex;align-items:center;gap:10px;background:var(--glass2);border:1px solid var(--border);border-radius:14px;padding:10px 13px}
 .scard-icon{width:34px;height:34px;border-radius:10px;background:var(--gold-dim);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .scard-info{flex:1}
@@ -216,35 +453,6 @@ html,body{
 .ch-reward-val{font-size:14px;font-weight:800;color:var(--gold)}
 .ch-reward-lbl{font-size:9px;color:var(--text3);display:block;margin-top:1px}
 
-/* BATTLE */
-.battle-card{background:var(--glass2);border:1px solid var(--border);border-radius:16px;padding:14px;margin-bottom:0;position:relative;overflow:hidden}
-.battle-card.active-battle{border-color:rgba(239,68,68,.3)}
-.battle-card.won{border-color:var(--gold-border)}
-.battle-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
-.battle-vs{font-size:11px;font-weight:700;color:var(--text2);letter-spacing:1px;text-transform:uppercase}
-.battle-status{font-size:10px;font-weight:700;padding:3px 8px;border-radius:20px}
-.battle-status.live{background:rgba(239,68,68,.12);color:var(--red)}
-.battle-status.won{background:var(--gold-dim);color:var(--gold)}
-.battle-status.lost{background:rgba(255,255,255,.05);color:var(--text2)}
-.battle-players{display:flex;align-items:center;gap:10px;margin-bottom:10px}
-.battle-player{flex:1;display:flex;flex-direction:column;gap:4px}
-.battle-player-name{font-size:12px;font-weight:700}
-.battle-player-score{font-size:22px;font-weight:900;letter-spacing:-1px;line-height:1}
-.battle-player-score.winning{color:var(--gold)}
-.battle-player-score.losing{color:var(--text2)}
-.battle-divider{font-size:14px;font-weight:900;color:var(--text3);flex-shrink:0}
-.battle-bar-wrap{height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;margin-bottom:6px}
-.battle-bar-you{height:100%;background:var(--gold);border-radius:3px;transition:width .5s}
-.battle-meta{font-size:10px;color:var(--text2);display:flex;justify-content:space-between}
-.battle-zone{font-size:10px;color:var(--teal-light);margin-top:4px}
-.battle-btn{
-  width:100%;padding:10px;border-radius:10px;border:1px solid var(--teal-border);
-  background:var(--teal-dim);color:var(--teal-light);font-family:'Outfit',sans-serif;
-  font-weight:700;font-size:12px;cursor:pointer;margin-top:10px;-webkit-appearance:none;
-}
-.battle-empty{padding:24px 16px;text-align:center;color:var(--text2);font-size:13px;line-height:1.6}
-.battle-empty-title{font-size:15px;font-weight:700;color:var(--text);margin-bottom:8px}
-
 /* RECAP */
 .recap-wrap{padding:8px 14px 14px;overflow-y:auto;flex:1;scrollbar-width:none}
 .recap-wrap::-webkit-scrollbar{display:none}
@@ -255,206 +463,42 @@ html,body{
 .recap-stat-lbl{font-size:9px;color:var(--text2);margin-top:3px;text-transform:uppercase;letter-spacing:.5px}
 .share-btn{width:100%;padding:12px;border-radius:12px;border:none;background:var(--gold);color:#1a1200;font-family:'Outfit',sans-serif;font-weight:700;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;-webkit-appearance:none}
 
-/* BATTLE RENDER */
-// Dynamic battles based on territory ownership
-function renderBattle(){
-  const el=document.getElementById('battleList');
-  if(!el)return;
-  el.innerHTML='';
-
-  // Generate live battles from territory data
-  const activeBattles=[];
-
-  TERRS.forEach(t=>{
-    if(t.status==='owned'){
-      // You own it — show defense battle if contested
-      // Use stable offset (hash of name) so scores don't flicker on re-render
-      const stableOff1=Math.abs(t.name.split('').reduce((a,c)=>a+c.charCodeAt(0),0)%15)+5;
-      activeBattles.push({
-        zone:t.name,
-        yourScore:t.pct,
-        theirScore:Math.max(0,t.pct-stableOff1),
-        rival:t.rival||'Friend',
-        status:t.cont?'live':'won',
-        type:'defense',
-      });
-    } else if(t.status==='enemy'||t.status==='neutral'){
-      const stableOff2=Math.abs(t.name.split('').reduce((a,c)=>a+c.charCodeAt(0),0)%18)+8;
-      activeBattles.push({
-        zone:t.name,
-        yourScore:Math.max(0,t.pct-stableOff2),
-        theirScore:t.pct,
-        rival:t.owner==='–'?t.rival||'Devon':t.owner,
-        status:'live',
-        type:'attack',
-      });
-    }
-  });
-
-  if(!activeBattles.length){
-    el.innerHTML=`<div class="battle-empty"><div class="battle-empty-title">No active battles</div>Walk into a neighborhood to start competing for territory.</div>`;
-    return;
-  }
-
-  activeBattles.forEach(b=>{
-    const youWin=b.yourScore>b.theirScore;
-    const totalPts=Math.max(b.yourScore+b.theirScore,1);
-    const yourPct=Math.round((b.yourScore/100)*100);
-    const card=document.createElement('div');
-    card.className=`battle-card ${b.status==='live'?'active-battle':youWin?'won':''}`;
-    card.innerHTML=`
-      <div class="battle-header">
-        <div class="battle-vs">${b.type==='defense'?'Defending':'Challenging'} · ${b.zone}</div>
-        <div class="battle-status ${b.status==='live'?'live':youWin?'won':'lost'}">${b.status==='live'?'LIVE':youWin?'WINNING':'LOSING'}</div>
-      </div>
-      <div class="battle-players">
-        <div class="battle-player">
-          <div class="battle-player-name">You</div>
-          <div class="battle-player-score ${youWin?'winning':'losing'}">${b.yourScore}%</div>
-        </div>
-        <div class="battle-divider">vs</div>
-        <div class="battle-player" style="text-align:right">
-          <div class="battle-player-name">${b.rival}</div>
-          <div class="battle-player-score ${!youWin?'winning':'losing'}">${b.theirScore}%</div>
-        </div>
-      </div>
-      <div class="battle-bar-wrap">
-        <div class="battle-bar-you" style="width:${yourPct}%"></div>
-      </div>
-      <div class="battle-meta">
-        <span>Collect more dots in ${b.zone} to ${b.type==='defense'?'defend':'claim'} this territory</span>
-        <span>${youWin?'You lead':'Behind'}</span>
-      </div>
-      ${b.status==='live'?`<button class="battle-btn" onclick="centerOnTerritory('${b.zone}')">Navigate to ${b.zone}</button>`:''}`;
-    el.appendChild(card);
-  });
-}
-
-function centerOnTerritory(name){
-  const t=TERRS.find(t=>t.name===name);
-  if(!t||!map)return;
-  const lat=(t.lat1+t.lat2)/2,lng=(t.lng1+t.lng2)/2;
-  map.flyTo({center:[lng,lat],zoom:15,speed:1.2});
-}
-
 /* TOAST */
-.toast{position:fixed;top:calc(var(--st) + 80px);left:50%;transform:translateX(-50%) translateY(-12px);background:rgba(11,14,20,.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid var(--border2);border-radius:14px;padding:10px 14px;z-index:50;display:flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,.55);white-space:nowrap;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;min-width:200px}
+.toast{position:absolute;top:calc(var(--st) + 80px);left:50%;transform:translateX(-50%) translateY(-12px);background:rgba(11,14,20,.96);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid var(--border2);border-radius:14px;padding:10px 14px;z-index:50;display:flex;align-items:center;gap:10px;box-shadow:0 8px 32px rgba(0,0,0,.55);white-space:nowrap;font-size:13px;font-weight:600;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;min-width:200px}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 .toast-icon{width:26px;height:26px;border-radius:8px;background:var(--glass2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0}
 
 /* BURST */
-.burst-wrap{position:fixed;inset:0;pointer-events:none;z-index:25;overflow:hidden}
+.burst-wrap{position:absolute;inset:0;pointer-events:none;z-index:25;overflow:hidden}
 .burst{position:absolute;border-radius:50%;pointer-events:none;animation:bst .6s ease-out forwards}
 @keyframes bst{0%{transform:translate(0,0) scale(1);opacity:1}100%{transform:translate(var(--bx),var(--by)) scale(0);opacity:0}}
 .pop{position:absolute;font-size:14px;font-weight:900;pointer-events:none;animation:pop .75s ease-out forwards}
 @keyframes pop{0%{transform:translateY(0);opacity:1}100%{transform:translateY(-40px);opacity:0}}
 
 /* PERMISSION */
-.perm{position:absolute;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px;text-align:center;gap:20px;transition:opacity .4s}
-.perm.gone{opacity:0;pointer-events:none;animation:perm-out .4s ease-out forwards}
-@keyframes perm-out{0%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1.03);display:none}}
+.perm{position:absolute;inset:0;z-index:100;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 32px;text-align:center;gap:20px}
+.perm.gone{display:none}
 .perm-title{font-size:24px;font-weight:900;letter-spacing:-.5px}
 .perm-sub{font-size:14px;color:var(--text2);line-height:1.6;max-width:280px}
 .perm-btn{background:var(--gold);color:#1a1200;border:none;border-radius:100px;padding:15px 40px;font-family:'Outfit',sans-serif;font-weight:700;font-size:16px;cursor:pointer;box-shadow:0 0 40px var(--gold-glow);-webkit-appearance:none}
 .perm-note{font-size:11px;color:var(--text3);line-height:1.5;max-width:260px}
+#permDefault{display:flex;flex-direction:column;align-items:center;gap:16px;text-align:center}
+#permError{gap:14px}
 
-/* PARTNER DOTS */
-.partner-dot{
-  width:28px;height:28px;
-  border-radius:50%;
-  border:3px solid #fff;
-  display:flex;align-items:center;justify-content:center;
-  cursor:pointer;
-  position:relative;
-  box-shadow:0 2px 16px rgba(0,0,0,0.4);
-  transition:transform .15s;
-}
-.partner-dot:active{transform:scale(.92)}
-.partner-dot.eaten{
-  opacity:0.35;
-  filter:grayscale(1);
-  box-shadow:none;
-}
-.partner-dot-ring{
-  position:absolute;
-  width:38px;height:38px;
-  border-radius:50%;
-  border:2px solid rgba(255,255,255,0.3);
-  animation:partner-pulse 2s infinite;
-  pointer-events:none;
-}
-@keyframes partner-pulse{
-  0%{transform:scale(1);opacity:.6}
-  50%{transform:scale(1.25);opacity:.15}
-  100%{transform:scale(1);opacity:.6}
-}
-.partner-dot svg{flex-shrink:0}
-
-/* OFFER CARD */
-.offer-overlay{
-  position:fixed;inset:0;z-index:60;
-  display:flex;align-items:flex-end;justify-content:center;
-  padding:0 16px 100px;
-  pointer-events:none;
-}
-.offer-overlay.show{pointer-events:all}
-.offer-bg{
-  position:absolute;inset:0;
-  background:rgba(0,0,0,0.6);
-  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
-  opacity:0;transition:opacity .3s;
-}
-.offer-overlay.show .offer-bg{opacity:1}
-.offer-card{
-  position:relative;z-index:1;
-  background:var(--slate-2);
-  border:1px solid var(--border2);
-  border-radius:24px;
-  padding:24px;
-  width:100%;max-width:360px;
-  transform:translateY(40px);opacity:0;
-  transition:transform .35s cubic-bezier(.32,.72,0,1),opacity .3s;
-  box-shadow:0 24px 64px rgba(0,0,0,.5);
-}
-.offer-overlay.show .offer-card{transform:translateY(0);opacity:1}
-.offer-brand-row{display:flex;align-items:center;gap:12px;margin-bottom:16px}
-.offer-brand-logo{
-  width:44px;height:44px;border-radius:12px;
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;
-}
-.offer-brand-name{font-size:16px;font-weight:800;letter-spacing:-.3px}
-.offer-brand-loc{font-size:11px;color:var(--text2);margin-top:2px}
-.offer-pts{
-  background:var(--gold-dim);border:1px solid var(--gold-border);
-  border-radius:12px;padding:12px 16px;
-  display:flex;align-items:center;justify-content:space-between;
-  margin-bottom:12px;
-}
-.offer-pts-val{font-size:28px;font-weight:900;color:var(--gold);letter-spacing:-1px;line-height:1}
-.offer-pts-lbl{font-size:11px;color:var(--text2);margin-top:2px}
-.offer-pts-icon{font-size:28px}
-.offer-text{
-  background:rgba(255,255,255,.04);border:1px solid var(--border);
-  border-radius:12px;padding:12px 14px;
-  font-size:13px;font-weight:600;color:var(--text);
-  text-align:center;margin-bottom:16px;line-height:1.5;
-}
-.offer-sponsored{
-  font-size:10px;color:var(--text2);text-align:center;
-  margin-bottom:14px;letter-spacing:.5px;
-}
-.offer-close{
-  width:100%;padding:13px;border-radius:14px;border:none;
-  background:var(--gold);color:#1a1200;
-  font-family:'Outfit',sans-serif;font-weight:700;font-size:14px;
-  cursor:pointer;-webkit-appearance:none;
-}
+/* PHONE AUTH */
+#phoneAuthWrap{width:100%;max-width:300px;display:flex;flex-direction:column;gap:14px;align-items:center}
+#phoneAuthWrap input{width:100%;background:rgba(255,255,255,0.06);border:1px solid var(--border2);border-radius:14px;padding:14px 16px;font-family:'Outfit',sans-serif;font-size:16px;color:var(--text);outline:none;text-align:center;-webkit-appearance:none}
+#phoneAuthWrap input::placeholder{color:var(--text3)}
+#phoneAuthWrap input:focus{border-color:var(--gold-border)}
+.phone-step{display:flex;flex-direction:column;gap:10px;align-items:center;width:100%}
+#phoneError{font-size:12px;color:var(--red);text-align:center;display:none;max-width:260px;line-height:1.4}
+.resend-btn{background:none;border:none;color:var(--text2);font-family:'Outfit',sans-serif;font-size:12px;cursor:pointer;text-decoration:underline;padding:0}
 
 /* MARKERS */
 .player-el{width:44px;height:44px;display:flex;align-items:center;justify-content:center;position:relative}
 .player-ring{position:absolute;width:44px;height:44px;border-radius:50%;background:rgba(240,180,41,.1);animation:pr 2s infinite}
 @keyframes pr{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.3);opacity:.2}}
-.player-pin{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,var(--gold-light),var(--gold));border:3px solid #fff;box-shadow:0 2px 16px rgba(240,180,41,.6);display:flex;align-items:center;justify-content:center;font-family:'Outfit',sans-serif;font-weight:900;font-size:12px;color:#1a1200;position:relative;z-index:1}
+.player-pin{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--gold-light),var(--gold));border:3px solid #fff;box-shadow:0 2px 16px rgba(240,180,41,.6);display:flex;align-items:center;justify-content:center;font-size:16px;position:relative;z-index:1;line-height:1}
 .friend-el{display:flex;flex-direction:column;align-items:center;gap:3px}
 .friend-pin{width:28px;height:28px;border-radius:50%;border:2.5px solid rgba(255,255,255,.22);display:flex;align-items:center;justify-content:center;font-family:'Outfit',sans-serif;font-weight:800;font-size:10px;color:#fff}
 .friend-lbl{background:rgba(11,14,20,.85);border-radius:6px;padding:2px 6px;font-size:9px;font-weight:600;color:rgba(238,240,246,.8);white-space:nowrap}
@@ -462,7 +506,7 @@ function centerOnTerritory(name){
 </head>
 <body>
 
-<!-- Permission screen -->
+<!-- Permission / Auth screen -->
 <div class="perm" id="perm">
   <svg width="56" height="44" viewBox="0 0 72 56" fill="none">
     <circle cx="8"  cy="46" r="3.5" fill="rgba(240,180,41,0.18)"/>
@@ -477,19 +521,60 @@ function centerOnTerritory(name){
     <div class="perm-title">Waga·Waga Walk</div>
     <div style="font-size:11px;font-weight:300;letter-spacing:.2em;text-transform:uppercase;color:var(--text2);margin-top:4px">Beta</div>
   </div>
-  <div class="perm-sub">Walk your neighborhood, collect dots, own territories, and compete with friends.</div>
-  <button class="perm-btn" id="permBtn" onclick="startApp()">Enable Location</button>
-  <div class="perm-note">Your location is only used while the app is open and is never stored on a server.</div>
-</div>
 
-<!-- Map rendered outside shell to avoid Safari overflow:hidden clipping -->
-<div id="map-wrap">
-  <div id="map"></div>
+  <!-- Phone auth steps -->
+  <div id="phoneAuthWrap">
+
+    <!-- Step 1: Enter phone -->
+    <div class="phone-step" id="phoneStep">
+      <div class="perm-sub" style="margin-bottom:4px">Enter your phone number to join the leaderboard and keep your progress.</div>
+      <input id="phoneInput" type="tel" inputmode="tel" placeholder="(555) 555-5555" autocomplete="tel"/>
+      <button class="perm-btn" onclick="window._sendCode()">Send Code</button>
+      <div class="perm-note">US numbers only for now. Standard SMS rates apply.</div>
+    </div>
+
+    <!-- Step 2: Enter code -->
+    <div class="phone-step" id="codeStep" style="display:none">
+      <div class="perm-sub" style="margin-bottom:4px">Enter the 6-digit code we just texted you.</div>
+      <input id="codeInput" type="number" inputmode="numeric" placeholder="123456" maxlength="6" autocomplete="one-time-code"/>
+      <button class="perm-btn" onclick="window._verifyCode()">Verify</button>
+      <button class="resend-btn" onclick="window._setPhoneState('phone')">Wrong number? Go back</button>
+    </div>
+
+    <!-- Sending/verifying state -->
+    <div class="phone-step" id="sendingStep" style="display:none">
+      <div style="font-size:28px">📱</div>
+      <div class="perm-sub" id="sendingLbl">Sending code…</div>
+    </div>
+
+    <!-- Single error element -->
+    <div id="phoneError" style="font-size:12px;color:var(--red);text-align:center;display:none;max-width:260px;line-height:1.4"></div>
+
+  </div>
+
+  <!-- invisible reCAPTCHA anchor -->
+  <div id="recaptcha-container"></div>
+
+  <!-- Location error state (shown after auth if location denied) -->
+  <div id="permError" style="display:none;flex-direction:column;align-items:center;gap:14px">
+    <div style="font-size:32px">🚫</div>
+    <div class="perm-sub" id="permErrorMsg">Location access was denied.</div>
+    <div style="background:rgba(240,180,41,0.08);border:1px solid var(--gold-border);border-radius:14px;padding:14px 16px;font-size:12px;color:var(--text2);line-height:1.7;max-width:290px;text-align:left">
+      <strong style="color:var(--gold);display:block;margin-bottom:4px">To fix this on iPhone:</strong>
+      1. Open the <strong style="color:var(--text)">Settings</strong> app<br>
+      2. Tap <strong style="color:var(--text)">Privacy & Security → Location Services</strong><br>
+      3. Find <strong style="color:var(--text)">Safari</strong> → set to <strong style="color:var(--text)">While Using</strong><br>
+      4. Make sure <strong style="color:var(--text)">Precise Location</strong> is ON<br>
+      5. Come back and tap Retry
+    </div>
+    <button class="perm-btn" onclick="retryLocation()">Try Again</button>
+    <div class="perm-note">Location is required to play.</div>
+  </div>
 </div>
 
 <div class="shell">
+  <div id="map"></div>
   <div class="ui">
-    <!-- Topbar -->
     <div class="topbar">
       <div class="topbar-inner">
         <div class="brand">
@@ -512,19 +597,17 @@ function centerOnTerritory(name){
             <svg width="11" height="14" viewBox="0 0 13 16" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round"><path d="M6.5 14.5c2.5 0 4.5-1.8 4.5-4.5 0-1.8-1-3-2-4-.3 1.2-1 2-1.8 2.2C7.8 6.5 7 4.5 5.5 3c0 2-1.5 3.2-2 4.5-.3.8-.5 1.6-.5 2.5 0 2.7 2 4.5 3.5 4.5z"/></svg>
             <span id="streakVal">0</span>
           </div>
-          <button class="av-btn" id="avBtn">?</button>
+          <button class="av-btn" id="avBtn" onclick="openProfile()">?</button>
         </div>
       </div>
     </div>
 
-    <!-- Scores -->
     <div class="score-row">
-      <div class="sp"><span class="v" id="scoreToday">0</span><span class="l">Today</span></div>
-      <div class="sp"><span class="v" id="scoreWeek">0</span><span class="l">Week</span></div>
-      <div class="sp"><span class="v" id="scoreAll">0</span><span class="l">All Time</span></div>
+      <div class="sp"><span class="v" id="scoreToday">0</span><span class="l">Today</span><span class="l-sub" id="scoreTodaySub"></span></div>
+      <div class="sp"><span class="v" id="scoreWeek">0</span><span class="l">Week</span><span class="l-sub" id="scoreWeekSub"></span></div>
+      <div class="sp"><span class="v" id="scoreAll">0</span><span class="l">All Time</span><span class="l-sub" id="scoreAllSub"></span></div>
     </div>
 
-    <!-- Challenge banner -->
     <div class="ch-banner" onclick="showPanel('challenges',null,'ot')">
       <svg width="14" height="18" viewBox="0 0 16 20" fill="none" stroke="var(--teal)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M9 1L1 11h7l-1 8 8-10H8L9 1z"/></svg>
       <div class="cht">
@@ -535,11 +618,10 @@ function centerOnTerritory(name){
       <div class="ch-badge">+300 pts</div>
     </div>
 
-    <!-- GPS / Nearby -->
     <div class="gps-badge" id="gpsBadge"><div class="gdot"></div><span id="gpsLbl">Searching…</span></div>
     <div class="nearby-badge"><span id="nearbyCount">–</span> nearby</div>
+    <div id="dotLoader">⬤ Loading road dots…</div>
 
-    <!-- Walk button -->
     <div class="walk-wrap" id="walkWrap">
       <button class="walk-btn" id="walkBtn" onclick="toggleWalk()">
         <div class="wdot" id="wdot"></div>
@@ -550,7 +632,6 @@ function centerOnTerritory(name){
       </button>
     </div>
 
-    <!-- Fabs -->
     <div class="fabs" id="fabs">
       <div class="fab" onclick="centerMap()">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
@@ -561,38 +642,62 @@ function centerOnTerritory(name){
     </div>
 
     <div class="burst-wrap" id="bw"></div>
+  </div>
 
-    <!-- Brand partner offer card -->
-    <div class="offer-overlay" id="offerOverlay">
-      <div class="offer-bg" onclick="closeOffer()"></div>
-      <div class="offer-card" id="offerCard">
-        <div class="offer-brand-row">
-          <div class="offer-brand-logo" id="offerLogo">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
-          </div>
-          <div>
-            <div class="offer-brand-name" id="offerBrand">Blue Bottle Coffee</div>
-            <div class="offer-brand-loc" id="offerLoc">West Village</div>
-          </div>
+  <div class="toast" id="toast"><div class="toast-icon" id="tIcon"></div><div id="tMsg"></div></div>
+
+  <!-- Profile Edit Modal -->
+  <div class="walk-summary" id="profileModal">
+    <div class="ws-card">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+        <div style="font-size:36px" id="profileEmoji">🐣</div>
+        <div>
+          <div class="ws-title">Your Profile</div>
+          <div class="ws-sub" id="profileTierLabel">Hatchling</div>
         </div>
-        <div class="offer-pts">
-          <div>
-            <div class="offer-pts-val" id="offerPts">+100</div>
-            <div class="offer-pts-lbl">dots collected</div>
-          </div>
-          <div class="offer-pts-icon">🎉</div>
-        </div>
-        <div class="offer-text" id="offerText">Show this screen for a free drip coffee upgrade</div>
-        <div class="offer-sponsored">Sponsored · Blue Bottle Coffee</div>
-        <button class="offer-close" onclick="closeOffer()">Awesome, thanks!</button>
+      </div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:16px">Emoji is earned by your streak — keep walking to level up!</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:20px">
+        <label style="font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--text2)">Display Name</label>
+        <input id="profileNameInput" type="text" maxlength="20"
+          style="background:rgba(255,255,255,0.06);border:1px solid var(--border2);border-radius:14px;padding:14px 16px;font-family:'Outfit',sans-serif;font-size:16px;color:var(--text);outline:none;-webkit-appearance:none;width:100%"
+          placeholder="Your name on the leaderboard"/>
+        <div id="profileError" style="font-size:12px;color:var(--red);display:none"></div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button onclick="closeProfile()" style="flex:1;padding:14px;border-radius:14px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-family:'Outfit',sans-serif;font-weight:600;font-size:14px;cursor:pointer">Cancel</button>
+        <button onclick="saveProfile()" style="flex:2;padding:14px;border-radius:14px;border:none;background:var(--gold);color:#1a1200;font-family:'Outfit',sans-serif;font-weight:700;font-size:14px;cursor:pointer">Save Name</button>
       </div>
     </div>
   </div>
 
-  <!-- Toast -->
-  <div class="toast" id="toast"><div class="toast-icon" id="tIcon"></div><div id="tMsg"></div></div>
+  <!-- Walk Summary Modal -->
+  <div class="walk-summary" id="walkSummary">
+    <div class="ws-card">
+      <div class="ws-title">Walk Complete! 🎉</div>
+      <div class="ws-sub" id="wsDuration">Great effort today</div>
+      <div class="ws-stats">
+        <div class="ws-stat highlight">
+          <div class="ws-stat-val" id="wsDots">0</div>
+          <div class="ws-stat-lbl">Dots collected</div>
+        </div>
+        <div class="ws-stat">
+          <div class="ws-stat-val" id="wsGolden">0</div>
+          <div class="ws-stat-lbl">Golden dots</div>
+        </div>
+        <div class="ws-stat">
+          <div class="ws-stat-val" id="wsStreak">0</div>
+          <div class="ws-stat-lbl">Day streak 🔥</div>
+        </div>
+        <div class="ws-stat">
+          <div class="ws-stat-val" id="wsBonus">0</div>
+          <div class="ws-stat-lbl">Bonus pts earned</div>
+        </div>
+      </div>
+      <button class="ws-close" onclick="closeWalkSummary()">Done</button>
+    </div>
+  </div>
 
-  <!-- Sheet -->
   <div class="sheet" id="sheet">
     <div class="sheet-handle" onclick="toggleSheet()">
       <div class="handle-bar"></div>
@@ -616,14 +721,34 @@ function centerOnTerritory(name){
       <button class="snav" onclick="showPanel('recap',this,'og')">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>Recap
       </button>
-      <button class="snav" onclick="showPanel('battle',this,'ot')">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z"/><path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/><path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z"/><path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z"/><path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z"/><path d="M15.5 9H14v1.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5S16.33 9 15.5 9z"/><path d="M10 9.5C10 8.67 9.33 8 8.5 8h-5C2.67 8 2 8.67 2 9.5S2.67 11 3.5 11h5c.83 0 1.5-.67 1.5-1.5z"/><path d="M8.5 15H10v-1.5c0-.83-.67-1.5-1.5-1.5S7 12.67 7 13.5 7.67 15 8.5 15z"/></svg>Battle
+      <button class="snav" id="battleNavBtn" onclick="showPanel('battle',this,'ob')">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 10c-.83 0-1.5-.67-1.5-1.5v-5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5z"/><path d="M20.5 10H19V8.5c0-.83.67-1.5 1.5-1.5s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/><path d="M9.5 14c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5S8 21.33 8 20.5v-5c0-.83.67-1.5 1.5-1.5z"/><path d="M3.5 14H5v1.5c0 .83-.67 1.5-1.5 1.5S2 16.33 2 15.5 2.67 14 3.5 14z"/><path d="M14 14.5c0-.83.67-1.5 1.5-1.5h5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-5c-.83 0-1.5-.67-1.5-1.5z"/><path d="M15.5 9H14v1.5c0 .83.67 1.5 1.5 1.5"/><path d="M10 9.5C10 8.67 9.33 8 8.5 8H3.5C2.67 8 2 8.67 2 9.5S2.67 11 3.5 11h5c.83 0 1.5-.67 1.5-1.5z"/><path d="M8.5 15H10v-1.5c0-.83-.67-1.5-1.5-1.5"/></svg>Battle
       </button>
     </div>
     <div class="sheet-body">
       <div class="panel" id="panel-today">
         <div class="tally">
-          <div class="tally-top"><div class="tally-num" id="tallyNum">0</div><div class="tally-lbl">dots collected today</div></div>
+          <div class="tally-top">
+            <!-- Goal ring -->
+            <div class="goal-ring-wrap">
+              <svg width="72" height="72" viewBox="0 0 72 72">
+                <circle class="goal-ring-bg" cx="36" cy="36" r="30"/>
+                <circle class="goal-ring-fill" id="goalRingFill" cx="36" cy="36" r="30"
+                  stroke-dasharray="188.5" stroke-dashoffset="188.5"/>
+              </svg>
+              <div class="goal-ring-label">
+                <div class="goal-ring-pct" id="goalRingPct">0%</div>
+                <div class="goal-ring-sub">of 50</div>
+              </div>
+            </div>
+            <div>
+              <div style="display:flex;align-items:baseline;gap:8px">
+                <div class="tally-num" id="tallyNum">0</div>
+                <div class="tally-lbl">dots today</div>
+              </div>
+              <div style="font-size:11px;color:var(--text2);margin-top:4px" id="goalMsg">Keep walking!</div>
+            </div>
+          </div>
           <div class="scard">
             <div class="scard-icon"><svg width="16" height="18" viewBox="0 0 13 16" fill="none" stroke="var(--gold)" stroke-width="1.6" stroke-linecap="round"><path d="M6.5 14.5c2.5 0 4.5-1.8 4.5-4.5 0-1.8-1-3-2-4-.3 1.2-1 2-1.8 2.2C7.8 6.5 7 4.5 5.5 3c0 2-1.5 3.2-2 4.5-.3.8-.5 1.6-.5 2.5 0 2.7 2 4.5 3.5 4.5z"/></svg></div>
             <div class="scard-info"><div class="scard-title">Day Streak</div><div class="scard-sub" id="streakSub">Dots reset at midnight · keep moving</div></div>
@@ -642,53 +767,82 @@ function centerOnTerritory(name){
       <div class="panel hidden" id="panel-territories"><div class="hscroll" id="terrList"></div></div>
       <div class="panel hidden" id="panel-challenges"><div class="vscroll" id="chList"></div></div>
       <div class="panel hidden" id="panel-recap"><div class="recap-wrap" id="recapWrap"></div></div>
-      <div class="panel hidden" id="panel-battle"><div class="vscroll" id="battleList"></div></div>
+      <div class="panel hidden" id="panel-battle">
+        <div class="battle-wrap">
+          <div class="battle-header">
+            <div class="battle-title-row">
+              <div>
+                <div class="battle-title">⚔️ Weekly Battle</div>
+                <div class="battle-sub" id="battleSub">Loading…</div>
+              </div>
+              <div class="battle-score-chip">
+                <div class="battle-score-val" id="battleMyScore">0</div>
+                <div class="battle-score-lbl">your dots</div>
+              </div>
+            </div>
+            <div class="battle-timer-row">
+              <div class="battle-timer-bar-bg"><div class="battle-timer-bar" id="battleTimerBar" style="width:100%"></div></div>
+              <div class="battle-timer-lbl" id="battleTimerLbl">Ends Sunday midnight</div>
+            </div>
+          </div>
+          <div class="battle-lb" id="battleLb"></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
-/* CONFIG */
-const TOKEN     = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
-const COLLECT_M = 18;
-const SPAWN_M   = 600;
-const GRID_LAT  = 0.00022;
-const GRID_LNG  = 0.00028;
-const GOLD_PCT  = 4;
+/* ─── CONFIG ─────────────────────────────────────────────── */
+const TOKEN      = 'pk.eyJ1Ijoid2FnYXdhZ2F3YWxrIiwiYSI6ImNtbng1YjlrejAwd3IycHB1azdwbmJrM2EifQ.Wu6CujCFHxBLj-78MH1a4Q';
+const COLLECT_M  = 18;      // metres to collect a dot
+const DOT_STEP_M = 20;      // metres between dots along road
+const SPAWN_R_M  = 2000;    // pre-load radius in metres
+const GOLD_PCT   = 4;       // % chance a dot is golden
 
-/* STORAGE */
+/* ─── STORAGE ────────────────────────────────────────────── */
 const SK = 'wagawaga';
-const toDay = () => new Date().toISOString().split('T')[0];
+const toDay = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+};
 
 function blank(){
-  return{day:toDay(),todayDots:0,weekDots:0,allDots:0,streak:0,walkedToday:false,
+  return{
+    day:toDay(),todayDots:0,weekDots:0,allDots:0,streak:0,walkedToday:false,
     eatenIds:{},collectedToday:[],weekHistory:[],initials:'?',
+    todayMins:0,weekMins:0,allMins:0,
+    // Raw dot counts (excludes bonus points from challenges)
+    todayRawDots:0,weekRawDots:0,allRawDots:0,
+    // Bonus points earned from challenges
+    todayBonus:0,allBonus:0,
+    neighborhoodsThisWeek:[],
+    ownedHoods:[],ownedTerritories:0,
+    daysWalkedThisWeek:0,
+    speedRunStart:null,
+    speedRunDots:0,
     challenges:[
-      {id:'c1', prog:0,total:50, done:false},
-      {id:'c2', prog:0,total:3,  done:false},
-      {id:'c3', prog:0,total:5,  done:false},
-      {id:'c4', prog:0,total:10, done:false},
-      {id:'c5', prog:0,total:3,  done:false},
-      {id:'c6', prog:0,total:7,  done:false},
-      {id:'c7', prog:0,total:20, done:false},
-      {id:'c8', prog:0,total:10, done:false},
-      {id:'c9', prog:0,total:5,  done:false},
-      {id:'c10',prog:0,total:1,  done:false},
-      {id:'c11',prog:0,total:10, done:false},
-      {id:'c12',prog:0,total:100,done:false},
-      {id:'c13',prog:0,total:8,  done:false},
-      {id:'c14',prog:0,total:3,  done:false},
-    ],
-    walkedNeighborhoods:[],earlyBirdDay:'',terrProgress:{},
-    nightOwlDay:'',speedRunStart:null,speedRunCount:0,
-    walkedDaysThisWeek:[],blocksThisWalk:[],
-    landmarksCollected:[],defenseCount:0};
+      {id:'c1',    prog:0,total:50,   done:false},
+      {id:'c_eb',  prog:0,total:20,   done:false},
+      {id:'c_no',  prog:0,total:20,   done:false},
+      {id:'c_sr',  prog:0,total:10,   done:false},
+      {id:'c3',    prog:0,total:3,    done:false},
+      {id:'c_con', prog:0,total:7,    done:false},
+      {id:'c_td',  prog:0,total:1,    done:false},
+      {id:'c4',    prog:0,total:20,   done:false},
+      {id:'c_leg', prog:0,total:1000, done:false},
+      {id:'c_tk',  prog:0,total:3,    done:false},
+      {id:'c_fs',  prog:0,total:1,    done:false},
+      {id:'c_100', prog:0,total:100,  done:false},
+      {id:'c_fire',prog:0,total:7,    done:false},
+    ]
+  };
 }
 
 function loadStore(){
   try{
     const raw=localStorage.getItem(SK);
-    if(!raw) return blank();
+    if(!raw)return blank();
     const s=JSON.parse(raw);
     const b=blank();
     Object.keys(b).forEach(k=>{if(s[k]===undefined)s[k]=b[k];});
@@ -700,766 +854,915 @@ function loadStore(){
       s.streak=walked?(s.streak||0)+1:0;
       s.todayDots=0;s.eatenIds={};s.collectedToday=[];
       s.day=toDay();s.walkedToday=false;
-      // Reset all daily challenges at midnight
-      if(s.challenges)s.challenges.forEach(c=>{if(['c1','c7','c8'].includes(c.id)){c.prog=0;c.done=false;}});
-      // Reset speed run tracking
-      s.speedRunStart=null;s.speedRunCount=0;s.nightOwlDay='';
+      if(s.challenges)s.challenges.forEach(c=>{if(c.id==='c1'){c.prog=0;c.done=false;}});
     }
     return s;
   }catch(e){return blank();}
 }
-
 let S=loadStore();
-const save=()=>localStorage.setItem(SK,JSON.stringify(S));
+window._S = S;
+window._toDay = toDay;
+window._save = ()=>{ localStorage.setItem(SK,JSON.stringify(S)); window._S=S; };
+window._updateUI = ()=>{ if(typeof updateUI==='function') updateUI(); };
+window._updatePlayerPin = ()=>{ if(typeof updatePlayerPin==='function') updatePlayerPin(); };
+window._getEmoji = ()=>{ if(typeof getEmoji==='function') return getEmoji(); return {emoji:'🐣'}; };
+window._liveRows = [];
+window._lbPeriod = 'day';
+const save = ()=>{
+  localStorage.setItem(SK,JSON.stringify(S));
+  window._S=S;
+  if(window._pushCloud) window._pushCloud();
+};
 
-/* DATA */
+/* ─── STATIC DATA ────────────────────────────────────────── */
 const LB={
   day:[{n:'Jordan K.',loc:'Upper West Side',score:412,av:'JK',c:'#3A4A6B'},{n:'Priya M.',loc:'Brooklyn Hts',score:388,av:'PM',c:'#2C3E50'},{n:'Devon R.',loc:'Astoria',score:210,av:'DR',c:'#253040'},{n:'Sam W.',loc:'Williamsburg',score:189,av:'SW',c:'#1A2E2C'},{n:'Taylor B.',loc:'Park Slope',score:144,av:'TB',c:'#222A3A'}],
   week:[{n:'Priya M.',loc:'Brooklyn Hts',score:2105,av:'PM',c:'#2C3E50'},{n:'Jordan K.',loc:'Upper West Side',score:1980,av:'JK',c:'#3A4A6B'},{n:'Sam W.',loc:'Williamsburg',score:1654,av:'SW',c:'#1A2E2C'},{n:'Devon R.',loc:'Astoria',score:1320,av:'DR',c:'#253040'},{n:'Taylor B.',loc:'Park Slope',score:998,av:'TB',c:'#222A3A'}],
   month:[{n:'Sam W.',loc:'Williamsburg',score:8820,av:'SW',c:'#1A2E2C'},{n:'Jordan K.',loc:'Upper West Side',score:8401,av:'JK',c:'#3A4A6B'},{n:'Priya M.',loc:'Brooklyn Hts',score:7650,av:'PM',c:'#2C3E50'},{n:'Devon R.',loc:'Astoria',score:6200,av:'DR',c:'#253040'},{n:'Taylor B.',loc:'Park Slope',score:4300,av:'TB',c:'#222A3A'}],
 };
-// Territories with real NYC bounding boxes
-// pct = player's dot coverage (0-100), updated live as you collect
-const TERRS=[
-  {name:'Midtown East',    owner:'You',    ok:'gold', pct:74,status:'owned',  cont:false,
-   lat1:40.748,lat2:40.758,lng1:-73.982,lng2:-73.970, rival:'Jordan'},
-  {name:'Upper West Side', owner:'Jordan', ok:'slate',pct:61,status:'enemy',  cont:false,
-   lat1:40.775,lat2:40.800,lng1:-73.990,lng2:-73.960, rival:'Jordan'},
-  {name:'Chelsea',         owner:'You',    ok:'gold', pct:52,status:'owned',  cont:true,
-   lat1:40.740,lat2:40.752,lng1:-74.005,lng2:-73.990, rival:'Priya'},
-  {name:'Central Park',   owner:'–',      ok:'teal', pct:38,status:'neutral',cont:true,
-   lat1:40.764,lat2:40.800,lng1:-73.981,lng2:-73.949, rival:'Devon'},
-  {name:"Hell's Kitchen", owner:'You',    ok:'gold', pct:81,status:'owned',  cont:false,
-   lat1:40.752,lat2:40.768,lng1:-74.002,lng2:-73.985, rival:'Sam'},
-  {name:'Gramercy',       owner:'Sam',    ok:'teal', pct:55,status:'enemy',  cont:false,
-   lat1:40.736,lat2:40.748,lng1:-73.990,lng2:-73.975, rival:'Sam'},
-];
+// Territory data will be fetched live — no hardcoded mock
+const TERRS=[];
 
-// Track how many dots player has collected per territory
-// Key = territory name, value = count
-function getTerritoryFor(lat,lng){
-  return TERRS.find(t=>lat>=t.lat1&&lat<=t.lat2&&lng>=t.lng1&&lng<=t.lng2)||null;
+// ── Fetch neighborhood name from Mapbox for a lat/lng ────────
+async function fetchNeighborhood(lat,lng){
+  try{
+    const r=await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=neighborhood&access_token=${TOKEN}`);
+    const d=await r.json();
+    return d.features?.[0]?.text||null;
+  }catch(e){return null;}
 }
 
-function updateTerritoryProgress(lat,lng){
-  const t=getTerritoryFor(lat,lng);
-  if(!t)return false;
-  // Each dot collection in a territory adds 0.5% coverage up to 100
-  if(!S.terrProgress)S.terrProgress={};
-  S.terrProgress[t.name]=(S.terrProgress[t.name]||t.pct)+0.5;
-  const newPct=Math.min(100,S.terrProgress[t.name]);
-  t.pct=Math.round(newPct);
-  // Own it if over 60%
-  if(newPct>=60&&t.status!=='owned'){
-    t.status='owned';t.owner='You';t.ok='gold';t.cont=false;
-    showToast(ICO.trophy,`You now own ${t.name}!`);
-    // Check c5 Territory King
-    const ownedCount=TERRS.filter(x=>x.status==='owned').length;
-    const _c5=S.challenges?.find(c=>c.id==='c5');
-    if(_c5&&!_c5.done){_c5.prog=ownedCount;if(_c5.prog>=_c5.total){_c5.done=true;showToast(ICO.star,'Territory King! +2000 pts');}}
-    // Check c14 Defender — if contesting territory and you push back above 60%
-    if(t.cont){
-      const _c14=S.challenges?.find(c=>c.id==='c14');
-      if(_c14&&!_c14.done){_c14.prog++;if(_c14.prog>=_c14.total){_c14.done=true;showToast(ICO.star,'Defender complete! +1500 pts');}}
+// ── Push dot collection to territory score in Firebase ───────
+async function pushTerritoryDot(lat,lng,pts){
+  if(!window._fbUid||!window._fbDb||!window._fbFirestore||!lat||!lng) return;
+  const hood=await fetchNeighborhood(lat,lng);
+  if(!hood) return;
+
+  // Explorer challenge — track unique neighborhoods this week
+  const c3=S.challenges?.find(c=>c.id==='c3');
+  if(c3&&!c3.done){
+    S.neighborhoodsThisWeek=S.neighborhoodsThisWeek||[];
+    if(!S.neighborhoodsThisWeek.includes(hood)){
+      S.neighborhoodsThisWeek.push(hood);
+      c3.prog=S.neighborhoodsThisWeek.length;
+      if(c3.prog>=c3.total) awardChallenge('c3',500,'Explorer complete!');
+      showToast(ICO.teal,`New neighborhood: ${hood}!`);
     }
   }
-  return true;
+  const {doc,setDoc,getDoc,serverTimestamp}=window._fbFirestore;
+  const month=toDay().slice(0,7);
+  const key=`${hood}__${month}`.replace(/[^a-zA-Z0-9_]/g,'_');
+  try{
+    const ref=doc(window._fbDb,'territories',key);
+    const snap=await getDoc(ref);
+    const existing=snap.exists()?snap.data():{};
+    const userDots=(existing.users?.[window._fbUid]||0)+pts;
+    const users={...(existing.users||{}),[window._fbUid]:userDots};
+    let ownerUid=window._fbUid,ownerDots=0;
+    Object.entries(users).forEach(([uid,d])=>{if(d>ownerDots){ownerDots=d;ownerUid=uid;}});
+    const iOwn=ownerUid===window._fbUid;
+
+    // Track owned territory count for Territory King challenge
+    if(iOwn){
+      S.ownedTerritories=(S.ownedTerritories||0);
+      // Recount from scratch to avoid double-counting
+      // Use a set stored in S to track which hoods we own
+      if(!S.ownedHoods) S.ownedHoods=[];
+      if(!S.ownedHoods.includes(hood)){
+        S.ownedHoods.push(hood);
+        S.ownedTerritories=S.ownedHoods.length;
+        const ctk=S.challenges?.find(c=>c.id==='c_tk');
+        if(ctk&&!ctk.done){
+          ctk.prog=S.ownedTerritories;
+          if(ctk.prog>=ctk.total) awardChallenge('c_tk',2000,'Territory King complete!');
+          else showToast(ICO.teal,`Territory owned: ${hood}! (${ctk.prog}/${ctk.total})`);
+        }
+        save();
+      }
+    }
+
+    await setDoc(ref,{name:hood,month,users,ownerUid,ownerDots,updatedAt:serverTimestamp()},{merge:true});
+  }catch(e){console.warn('territory push error',e);}
 }
-// CHALLENGES — daily resets on c1/c7, others persist
-// Each has: id, icon, category ('daily'|'weekly'|'achievement'), title, desc, total, reward
+
+// ── Load and render live territories ─────────────────────────
+async function loadTerritories(){
+  // Retry up to 5 times if Firebase isn't ready yet
+  if(!window._fbDb||!window._fbFirestore||!window._fbUid){
+    const el=document.getElementById('terrList');
+    el.innerHTML='<div style="padding:20px;color:var(--text2);font-size:13px;text-align:center">Connecting…</div>';
+    setTimeout(loadTerritories, 1500);
+    return;
+  }
+  const month=toDay().slice(0,7);
+  try{
+    const {getDocs,query:fbQ,collection:fbCol,where,orderBy:fbOrd} = window._fbFirestore;
+    const snap=await getDocs(fbQ(fbCol(window._fbDb,'territories'),where('month','==',month),fbOrd('ownerDots','desc')));
+    const rows=[];
+    snap.forEach(d=>{
+      const data=d.data();
+      const myDots=data.users?.[window._fbUid]||0;
+      const totalDots=Object.values(data.users||{}).reduce((a,b)=>a+b,0);
+      const pct=totalDots>0?Math.round(myDots/totalDots*100):0;
+      const isOwner=data.ownerUid===window._fbUid;
+      rows.push({name:data.name,ownerUid:data.ownerUid,ownerDots:data.ownerDots,myDots,pct,isOwner,users:data.users||{}});
+    });
+    renderTerrLive(rows);
+  }catch(e){
+    console.warn('loadTerritories error',e);
+    document.getElementById('terrList').innerHTML='<div style="padding:20px;color:var(--text2);font-size:13px;text-align:center">Couldn\'t load territories.<br><span style="font-size:11px;opacity:.6">Try closing and reopening the tab.</span></div>';
+  }
+}
+
+function renderTerrLive(rows){
+  const el=document.getElementById('terrList');el.innerHTML='';
+  if(!rows.length){
+    el.innerHTML='<div style="padding:20px;color:var(--text2);font-size:13px;text-align:center">Walk to claim territories!<br><span style="font-size:11px;opacity:.6">Dots you collect in each neighborhood<br>count toward owning it this month.</span></div>';
+    return;
+  }
+  rows.forEach(t=>{
+    const owned=t.isOwner;
+    const barC=owned?'var(--gold)':'var(--teal)';
+    const d=document.createElement('div');
+    d.className=`terr-card ${owned?'owned':''}`;
+    d.innerHTML=`
+      ${owned?'<div class="terr-badge yours">Yours</div>':''}
+      <div class="terr-name">${t.name}</div>
+      <div class="terr-owner">
+        <div style="width:6px;height:6px;border-radius:50%;background:${barC};flex-shrink:0"></div>
+        ${owned?'You lead':'Contested'}
+      </div>
+      <div class="terr-bar-bg"><div class="terr-bar" style="width:${Math.min(100,t.pct)}%;background:${barC}"></div></div>
+      <div class="terr-pct">${t.myDots} your dots · ${t.ownerDots} leader</div>`;
+    el.appendChild(d);
+  });
+}
 const CHS=[
-  // ── DAILY ──
-  {id:'c1', icon:'bolt',    cat:'daily',   title:'Daily Grind',   desc:'Collect 50 dots today',                       total:50,  reward:300,  timer:'Resets midnight'},
-  {id:'c7', icon:'moon',    cat:'daily',   title:'Night Owl',     desc:'Collect 20 dots after 9pm',                   total:20,  reward:200,  timer:'Resets midnight'},
-  {id:'c8', icon:'zap',     cat:'daily',   title:'Speed Run',     desc:'Collect 10 dots in under 5 minutes',          total:10,  reward:250,  timer:'Resets midnight'},
-
-  // ── WEEKLY ──
-  {id:'c2', icon:'sun',     cat:'weekly',  title:'Early Bird',    desc:'Collect 30 dots before 8am, 3 days in a row', total:3,   reward:300,  timer:'This week'},
-  {id:'c3', icon:'compass', cat:'weekly',  title:'Explorer',      desc:'Walk 5 different neighborhoods this week',    total:5,   reward:750,  timer:'This week'},
-  {id:'c9', icon:'repeat',  cat:'weekly',  title:'Consistent',    desc:'Walk and collect dots 5 days this week',      total:5,   reward:500,  timer:'This week'},
-  {id:'c10',icon:'crown',   cat:'weekly',  title:'Top Dog',       desc:'Finish #1 on the daily leaderboard',          total:1,   reward:1000, timer:'This week'},
-  {id:'c11',icon:'map',     cat:'weekly',  title:'Cartographer',  desc:'Cover 10 unique city blocks in one walk',     total:10,  reward:600,  timer:'This week'},
-
-  // ── ACHIEVEMENTS (lifetime) ──
-  {id:'c4', icon:'star',    cat:'achieve', title:'Golden Hunter',  desc:'Collect 10 golden dots',                     total:10,  reward:1500, timer:'Lifetime'},
-  {id:'c5', icon:'flag',    cat:'achieve', title:'Territory King', desc:'Own 3 territories at the same time',         total:3,   reward:2000, timer:'Lifetime'},
-  {id:'c6', icon:'fire',    cat:'achieve', title:'On Fire',        desc:'Maintain a 7-day streak',                   total:7,   reward:1000, timer:'Lifetime'},
-  {id:'c12',icon:'dots100', cat:'achieve', title:'Century Club',   desc:'Collect 100 dots in a single day',           total:100, reward:500,  timer:'Lifetime'},
-  {id:'c13',icon:'landmark',cat:'achieve', title:'Tourist',        desc:'Visit all 8 NYC landmark dots',              total:8,   reward:2500, timer:'Lifetime'},
-  {id:'c14',icon:'shield',  cat:'achieve', title:'Defender',       desc:'Successfully defend a territory 3 times',   total:3,   reward:1500, timer:'Lifetime'},
+  // ── Daily (resets midnight) ──────────────────────────────
+  {id:'c1',  icon:'bolt',    title:'Daily Grind',    desc:'Collect 50 dots today',                    total:50,   timer:'Resets midnight', reward:300,  period:'daily',  active:true},
+  {id:'c_eb',icon:'sun',     title:'Early Bird',     desc:'Collect 20 dots before 9am',               total:20,   timer:'Resets midnight', reward:200,  period:'daily',  active:true},
+  {id:'c_no',icon:'moon',    title:'Night Owl',      desc:'Collect 20 dots after 8pm',                total:20,   timer:'Resets midnight', reward:200,  period:'daily',  active:true},
+  {id:'c_sr',icon:'zap',     title:'Speed Run',      desc:'Collect 10 dots in under 5 minutes',       total:10,   timer:'Resets midnight', reward:150,  period:'daily',  active:true},
+  // ── Weekly (resets Monday) ───────────────────────────────
+  {id:'c3',  icon:'compass', title:'Explorer',       desc:'Walk in 3 different neighborhoods',         total:3,    timer:'This week',       reward:500,  period:'weekly', active:true},
+  {id:'c_con',icon:'calendar',title:'Consistent',    desc:'Walk at least once every day this week',   total:7,    timer:'This week',       reward:1000, period:'weekly', active:true},
+  {id:'c_td',icon:'trophy',  title:'Top Dog',        desc:'Finish #1 on the leaderboard any day',      total:1,    timer:'This week',       reward:750,  period:'weekly', active:true},
+  // ── Monthly ──────────────────────────────────────────────
+  {id:'c4',  icon:'star',    title:'Golden Hunter',  desc:'Collect 20 golden dots this month',        total:20,   timer:'This month',      reward:1500, period:'monthly',active:true},
+  {id:'c_leg',icon:'crown',  title:'Legend',         desc:'Collect 1000 dots this month',             total:1000, timer:'This month',      reward:2000, period:'monthly',active:true},
+  {id:'c_tk', icon:'map',    title:'Territory King', desc:'Own 3 territories simultaneously',          total:3,    timer:'This month',      reward:2000, period:'monthly',active:true},
+  // ── Milestones (one time) ────────────────────────────────
+  {id:'c_fs', icon:'flag',   title:'First Steps',    desc:'Collect your very first dot',               total:1,    timer:'One time',        reward:50,   period:'milestone',active:true},
+  {id:'c_100',icon:'medal',  title:'Century',        desc:'Collect 100 dots total',                    total:100,  timer:'One time',        reward:300,  period:'milestone',active:true},
+  {id:'c_fire',icon:'fire',  title:'On Fire',        desc:'Reach a 7 day streak',                      total:7,    timer:'One time',        reward:500,  period:'milestone',active:true},
 ];
+
 const CH_SVG={
   bolt:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>`,
   sun:     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>`,
-  compass: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>`,
-  star:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
-  moon:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
+  moon:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
   zap:     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
-  repeat:  `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>`,
-  crown:   `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 4l4 8 6-8 6 8 4-8v14a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4z"/></svg>`,
+  compass: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>`,
+  calendar:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>`,
+  trophy:  `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4a2 2 0 0 1-2-2V5h4"/><path d="M18 9h2a2 2 0 0 0 2-2V5h-4"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M6 5v4a6 6 0 0 0 12 0V5H6z"/></svg>`,
+  star:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`,
+  crown:   `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h20M4 20l2-8 6 4 6-4 2 8"/><path d="M12 4l2 4h4l-3 3 1 4-4-2-4 2 1-4-3-3h4z"/></svg>`,
   map:     `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>`,
   flag:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`,
+  medal:   `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="15" r="6"/><path d="M8.56 2.9A7 7 0 0 1 15.43 2.9L17 6H7z"/><path d="M12 12v3l1.5 1.5"/></svg>`,
   fire:    `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c4 0 7-3 7-7 0-3-1.5-5-3.5-6.5.5 2-1 3.5-2 4C14 10.5 13 8 11 6c0 3-2 4.5-3 6.5-.5 1-.5 2-.5 2.5 0 4 3 7 4.5 7z"/></svg>`,
-  dots100: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>`,
-  landmark:`<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 22V12h18v10"/><path d="M2 12l10-9 10 9"/><path d="M9 22V16h6v6"/></svg>`,
-  shield:  `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
 };
 const LANDMARKS=[
-  {name:'Empire State',lat:40.7484,lng:-73.9857,pts:50},{name:'Central Park',lat:40.7851,lng:-73.9683,pts:40},
-  {name:'Times Square',lat:40.7580,lng:-73.9855,pts:35},{name:'Brooklyn Bridge',lat:40.7061,lng:-73.9969,pts:45},
-  {name:'High Line',lat:40.7479,lng:-74.0048,pts:30},{name:'Washington Sq',lat:40.7308,lng:-73.9973,pts:30},
-  {name:'Rockefeller Ctr',lat:40.7587,lng:-73.9787,pts:35},{name:'Grand Central',lat:40.7527,lng:-73.9772,pts:40},
-];
-// ── BRAND PARTNERS ──────────────────────────────────────────
-// Each partner has a fixed GPS pin, brand color, offer text,
-// and resets daily so there's always a reason to walk past again.
-const PARTNERS=[
-  // Blue Bottle Coffee — NYC locations
-  {id:'bb_1', brand:'Blue Bottle Coffee', short:'Blue Bottle',
-   lat:40.7223, lng:-74.0030,
-   neighborhood:'West Village',
-   pts:100, color:'#1C1C1C', resetDaily:true,
-   offer:'Show this screen for a free drip coffee upgrade'},
-  {id:'bb_2', brand:'Blue Bottle Coffee', short:'Blue Bottle',
-   lat:40.7196, lng:-73.9956,
-   neighborhood:'Williamsburg',
-   pts:100, color:'#1C1C1C', resetDaily:true,
-   offer:'Show this screen for a free drip coffee upgrade'},
-  {id:'bb_3', brand:'Blue Bottle Coffee', short:'Blue Bottle',
-   lat:40.7243, lng:-73.9979,
-   neighborhood:'SoHo',
-   pts:100, color:'#1C1C1C', resetDaily:true,
-   offer:'Show this screen for a free drip coffee upgrade'},
-  {id:'bb_4', brand:'Blue Bottle Coffee', short:'Blue Bottle',
-   lat:40.7527, lng:-73.9772,
-   neighborhood:'Midtown',
-   pts:100, color:'#1C1C1C', resetDaily:true,
-   offer:'Show this screen for a free drip coffee upgrade'},
-  {id:'bb_5', brand:'Blue Bottle Coffee', short:'Blue Bottle',
-   lat:40.7614, lng:-73.9776,
-   neighborhood:'Rockefeller Ctr',
-   pts:100, color:'#1C1C1C', resetDaily:true,
-   offer:'Show this screen for a free drip coffee upgrade'},
+  {name:'Empire State',lat:40.7484,lng:-73.9857,pts:50,emoji:null},
+  {name:'Central Park',lat:40.7851,lng:-73.9683,pts:40,emoji:null},
+  {name:'Times Square',lat:40.7580,lng:-73.9855,pts:35,emoji:null},
+  {name:'Brooklyn Bridge',lat:40.7061,lng:-73.9969,pts:45,emoji:null},
+  {name:'High Line',lat:40.7479,lng:-74.0048,pts:30,emoji:null},
+  {name:'Washington Sq',lat:40.7308,lng:-73.9973,pts:30,emoji:null},
+  {name:'Rockefeller Ctr',lat:40.7587,lng:-73.9787,pts:35,emoji:null},
+  {name:'Grand Central',lat:40.7527,lng:-73.9772,pts:40,emoji:null},
+  // ── Blue Bottle Coffee NYC locations ────────────────────────
+  {name:'Blue Bottle · West Village',  lat:40.7223,lng:-74.0030,pts:25,emoji:'☕',brand:'bluebottle'},
+  {name:'Blue Bottle · Williamsburg',  lat:40.7147,lng:-73.9614,pts:25,emoji:'☕',brand:'bluebottle'},
+  {name:'Blue Bottle · SoHo',          lat:40.7243,lng:-73.9979,pts:25,emoji:'☕',brand:'bluebottle'},
+  {name:'Blue Bottle · Midtown',       lat:40.7527,lng:-73.9772,pts:25,emoji:'☕',brand:'bluebottle'},
+  {name:'Blue Bottle · Rockefeller',   lat:40.7587,lng:-73.9787,pts:25,emoji:'☕',brand:'bluebottle'},
+  {name:'Blue Bottle · Bryant Park',   lat:40.7536,lng:-73.9832,pts:25,emoji:'☕',brand:'bluebottle'},
+  {name:'Blue Bottle · Chelsea',       lat:40.7447,lng:-74.0014,pts:25,emoji:'☕',brand:'bluebottle'},
+  {name:'Blue Bottle · Nolita',        lat:40.7224,lng:-73.9941,pts:25,emoji:'☕',brand:'bluebottle'},
 ];
 
-const FRIENDS_CFG=[
-  {n:'Jordan K.',i:'JK',c:'#3A4A6B',spd:0.000035},{n:'Priya M.',i:'PM',c:'#2C3E50',spd:0.000028},
-  {n:'Sam W.',i:'SW',c:'#0EB8A0',spd:0.000042},{n:'Devon R.',i:'DR',c:'#253040',spd:0.000031},
-];
+// ── Brand notification system ─────────────────────────────────
+const BRAND_OFFERS={
+  bluebottle:{
+    brand:'Blue Bottle Coffee',
+    color:'#1C1C1C',
+    offer:'☕ You unlocked a Blue Bottle offer! Show this screen for\n20% off any drink today.',
+    cta:'20% off any drink',
+    icon:'☕',
+  }
+};
 
-/* MAP STATE */
-mapboxgl.accessToken=TOKEN;
-let map=null,playerMarker=null,playerLat=null,playerLng=null;
-let tracking=false,watchId=null,ghostOn=false,ghostPts=[];
-let glReady=false;
-const DOTS={};
-
-/* GRID */
-function snapGrid(lat,lng){
-  return{
-    lat:Math.round(Math.round(lat/GRID_LAT)*GRID_LAT*1e6)/1e6,
-    lng:Math.round(Math.round(lng/GRID_LNG)*GRID_LNG*1e6)/1e6,
-  };
+function checkBrandOffer(dot){
+  if(!dot.brand||!BRAND_OFFERS[dot.brand]) return;
+  const offer=BRAND_OFFERS[dot.brand];
+  const todayKey=`brand_${dot.brand}_${new Date().toDateString()}`;
+  // Show once per brand per day
+  if(localStorage.getItem(todayKey)) return;
+  localStorage.setItem(todayKey,'1');
+  // Show styled brand notification after short delay
+  setTimeout(()=>showBrandNotification(offer,dot.name),600);
 }
-function dotId(lat,lng){const g=snapGrid(lat,lng);return`d_${Math.round(g.lat*10000)}_${Math.round(g.lng*10000)}`;}
-function dotType(id){
-  let h=0;for(let i=0;i<id.length;i++)h=(Math.imul(31,h)+id.charCodeAt(i))|0;
-  return Math.abs(h)%100<GOLD_PCT?{type:'golden',pts:10}:{type:'regular',pts:1};
+
+function showBrandNotification(offer,location){
+  // Remove any existing
+  const ex=document.getElementById('brandNotif');if(ex)ex.remove();
+  const el=document.createElement('div');
+  el.id='brandNotif';
+  el.style.cssText=`
+    position:fixed;bottom:calc(var(--sb) + 260px);left:50%;transform:translateX(-50%) translateY(20px);
+    background:rgba(17,21,32,0.97);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+    border:1px solid rgba(255,255,255,0.12);border-radius:20px;
+    padding:16px 18px;z-index:55;width:calc(100% - 28px);max-width:400px;
+    box-shadow:0 12px 48px rgba(0,0,0,0.6);
+    opacity:0;transition:opacity .3s,transform .3s;pointer-events:all;
+  `;
+  el.innerHTML=`
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <div style="width:42px;height:42px;border-radius:12px;background:rgba(255,255,255,0.06);
+        border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;
+        justify-content:center;font-size:22px;flex-shrink:0">☕</div>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:800;color:#EEF0F6">${offer.brand}</div>
+        <div style="font-size:10px;color:rgba(238,240,246,0.5);margin-top:1px">${location}</div>
+      </div>
+      <div onclick="document.getElementById('brandNotif').remove()"
+        style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.06);
+        display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;color:rgba(238,240,246,0.4);flex-shrink:0">✕</div>
+    </div>
+    <div style="background:rgba(240,180,41,0.08);border:1px solid rgba(240,180,41,0.2);
+      border-radius:12px;padding:12px 14px;margin-bottom:12px">
+      <div style="font-size:15px;font-weight:900;color:#F0B429;letter-spacing:-.3px">${offer.cta}</div>
+      <div style="font-size:11px;color:rgba(238,240,246,0.6);margin-top:3px">Show this screen at any Blue Bottle NYC location today</div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:10px;color:rgba(238,240,246,0.3);letter-spacing:.3px">SPONSORED · BLUE BOTTLE COFFEE</div>
+      <div style="font-size:10px;font-weight:700;color:rgba(14,184,160,0.8)">+25 pts earned</div>
+    </div>
+  `;
+  document.body.appendChild(el);
+  requestAnimationFrame(()=>{
+    el.style.opacity='1';
+    el.style.transform='translateX(-50%) translateY(0)';
+  });
+  // Auto-dismiss after 8 seconds
+  setTimeout(()=>{
+    if(el.parentNode){
+      el.style.opacity='0';
+      el.style.transform='translateX(-50%) translateY(10px)';
+      setTimeout(()=>el.remove(),300);
+    }
+  },8000);
 }
+const FRIENDS_CFG=[];
+
+/* ─── BATTLE MODE ────────────────────────────────────────────
+   Weekly shared Pac-Man board. Dots stored in Firebase, eaten
+   by one player = gone for everyone. Color trails show who
+   ate what. Resets every Monday midnight.                    */
+
+// Player color assigned deterministically from UID
+function playerColor(uid){
+  if(!uid) return '#0EB8A0';
+  let h=0;for(let i=0;i<uid.length;i++)h=(Math.imul(31,h)+uid.charCodeAt(i))|0;
+  const COLORS=['#f87171','#fb923c','#fbbf24','#34d399','#38bdf8','#818cf8','#e879f9','#f472b6'];
+  return COLORS[Math.abs(h)%COLORS.length];
+}
+
+// Week ID = YYYY-Www (e.g. 2026-W16)
+function weekId(){
+  const d=new Date();
+  const jan1=new Date(d.getFullYear(),0,1);
+  const wk=Math.ceil(((d-jan1)/86400000+jan1.getDay()+1)/7);
+  return `${d.getFullYear()}-W${String(wk).padStart(2,'0')}`;
+}
+
+// Seconds until next Sunday midnight
+function secsTilSunday(){
+  const now=new Date();
+  const sun=new Date(now);
+  sun.setDate(now.getDate()+(7-now.getDay())%7||7);
+  sun.setHours(0,0,0,0);
+  return Math.max(0,Math.floor((sun-now)/1000));
+}
+
+let battleMode=false;
+let battleDots={};       // id → {id,lat,lng,eaten,eaterUid,eaterColor,eaterEmoji}
+let battleMyScore=0;
+let battleUnsub=null;    // Firestore unsubscribe fn
+let battleScoreUnsub=null;
+
+// ── Initialize battle for this week ──────────────────────────
+async function initBattle(){
+  if(!window._fbDb||!window._fbFirestore||!window._fbUid) return;
+  const {collection,query,onSnapshot,doc,setDoc,getDocs,where}=window._fbFirestore;
+  const wid=weekId();
+
+  // Subscribe to battle dot changes
+  const dotsRef=collection(window._fbDb,`battles/${wid}/dots`);
+  if(battleUnsub) battleUnsub();
+  battleUnsub=onSnapshot(dotsRef,snap=>{
+    snap.forEach(d=>{
+      const data=d.data();
+      battleDots[d.id]={id:d.id,...data};
+    });
+    refreshBattleGL();
+    updateBattleScore();
+  });
+
+  // Subscribe to score leaderboard
+  const scoresRef=collection(window._fbDb,`battles/${wid}/scores`);
+  if(battleScoreUnsub) battleScoreUnsub();
+  battleScoreUnsub=onSnapshot(scoresRef,snap=>{
+    const rows=[];
+    snap.forEach(d=>rows.push({uid:d.id,...d.data()}));
+    rows.sort((a,b)=>b.dots-a.dots);
+    renderBattleLB(rows);
+  });
+
+  // Generate dots if none exist yet for this week
+  const existing=await getDocs(dotsRef);
+  if(existing.size===0){
+    generateBattleDots(wid);
+  }
+
+  updateBattleTimer();
+  setInterval(updateBattleTimer,60000);
+}
+
+// ── Manhattan bounding box ────────────────────────────────────
+const MANHATTAN = {
+  minLat: 40.6980, maxLat: 40.8820,
+  minLng: -74.0200, maxLng: -73.9070
+};
+
+// ── Generate shared dots for the week across all of Manhattan ─
+async function generateBattleDots(wid){
+  if(!window._fbFirestore) return;
+  const {doc,writeBatch,collection}=window._fbFirestore;
+  const sub=document.getElementById('battleSub');
+  if(sub) sub.textContent='Building Manhattan board…';
+
+  // Sample a grid of points across Manhattan at ~200m spacing
+  // and use Mapbox Tilequery to find road points at each sample
+  const GRID_LAT = 0.0018; // ~200m
+  const GRID_LNG = 0.0022;
+  const dots = {};
+  const DOT_SPACING = 0.0003; // ~25m snap grid for dedup
+
+  function snapKey(lat,lng){
+    const sLat=Math.round(lat/DOT_SPACING)*DOT_SPACING;
+    const sLng=Math.round(lng/DOT_SPACING)*DOT_SPACING;
+    return `${Math.round(sLat*100000)}_${Math.round(sLng*100000)}`;
+  }
+
+  // Query Mapbox Tilequery API for roads at a grid of points
+  const points=[];
+  for(let lat=MANHATTAN.minLat;lat<=MANHATTAN.maxLat;lat+=GRID_LAT){
+    for(let lng=MANHATTAN.minLng;lng<=MANHATTAN.maxLng;lng+=GRID_LNG){
+      points.push({lat,lng});
+    }
+  }
+
+  if(sub) sub.textContent=`Querying ${points.length} road points…`;
+
+  // Process in parallel batches of 10
+  const BATCH=10;
+  let found=0;
+  for(let i=0;i<points.length;i+=BATCH){
+    const slice=points.slice(i,i+BATCH);
+    await Promise.all(slice.map(async ({lat,lng})=>{
+      try{
+        const r=await fetch(
+          `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${lng},${lat}.json?layers=road&limit=5&radius=100&access_token=${TOKEN}`
+        );
+        const d=await r.json();
+        if(!d.features) return;
+        d.features.forEach(f=>{
+          if(!f.geometry?.coordinates) return;
+          const [flng,flat]=f.geometry.coordinates;
+          // Filter non-walkable road types
+          const cls=(f.properties?.class||'').toLowerCase();
+          if(['motorway','trunk','ferry'].includes(cls)) return;
+          const key=snapKey(flat,flng);
+          if(!dots[key]) dots[key]={lat:flat,lng:flng};
+          found++;
+        });
+      }catch(e){}
+    }));
+    if(sub) sub.textContent=`Found ${Object.keys(dots).length} road points…`;
+  }
+
+  // Also interpolate between grid points along road lines for denser coverage
+  const dotList=Object.values(dots);
+
+  if(sub) sub.textContent=`Writing ${dotList.length} dots to board…`;
+
+  // Write to Firebase in batches of 499
+  const WBATCH=499;
+  for(let i=0;i<dotList.length;i+=WBATCH){
+    const batch=writeBatch(window._fbDb);
+    dotList.slice(i,i+WBATCH).forEach((d,j)=>{
+      const id=`bd_${i+j}`;
+      const ref=doc(window._fbDb,`battles/${wid}/dots`,id);
+      batch.set(ref,{lat:d.lat,lng:d.lng,eaten:false,eaterUid:null,eaterColor:null,eaterEmoji:null});
+    });
+    await batch.commit();
+  }
+
+  if(sub) sub.textContent=`${dotList.length} dots · ends Sunday midnight`;
+}
+
+// ── Eat a battle dot ─────────────────────────────────────────
+async function eatBattleDot(dotId){
+  if(!window._fbUid||!window._fbFirestore) return;
+  const bd=battleDots[dotId];
+  if(!bd||bd.eaten) return;
+  const {doc,setDoc}=window._fbFirestore;
+  const wid=weekId();
+  const color=playerColor(window._fbUid);
+  const emoji=getEmoji().emoji;
+
+  // Optimistically update local state
+  bd.eaten=true;bd.eaterUid=window._fbUid;bd.eaterColor=color;bd.eaterEmoji=emoji;
+  battleMyScore++;
+  refreshBattleGL();
+  updateBattleScore();
+  burst(bd.lng,bd.lat,'regular');
+
+  // Write to Firebase
+  await setDoc(doc(window._fbDb,`battles/${wid}/dots`,dotId),
+    {eaten:true,eaterUid:window._fbUid,eaterColor:color,eaterEmoji:emoji},{merge:true});
+
+  // Update score
+  await setDoc(doc(window._fbDb,`battles/${wid}/scores`,window._fbUid),{
+    displayName:S.displayName||'Anonymous',emoji,color,
+    dots:battleMyScore
+  },{merge:true});
+}
+
+// ── Check if player is near any battle dots ───────────────────
+function checkBattleCollect(lat,lng){
+  if(!battleMode) return;
+  Object.values(battleDots).forEach(d=>{
+    if(d.eaten) return;
+    if(hav(lat,lng,d.lat,d.lng)<=COLLECT_M) eatBattleDot(d.id);
+  });
+}
+
+// ── GL layer for battle dots ──────────────────────────────────
+function refreshBattleGL(){
+  if(!map) return;
+  const uneaten=Object.values(battleDots).filter(d=>!d.eaten);
+  const eaten=Object.values(battleDots).filter(d=>d.eaten);
+
+  const gj={type:'FeatureCollection',features:[
+    ...uneaten.map(d=>({type:'Feature',
+      geometry:{type:'Point',coordinates:[d.lng,d.lat]},
+      properties:{eaten:false,color:'#ffffff'}})),
+    ...eaten.map(d=>({type:'Feature',
+      geometry:{type:'Point',coordinates:[d.lng,d.lat]},
+      properties:{eaten:true,color:d.eaterColor||'#555',emoji:d.eaterEmoji||''}})),
+  ]};
+
+  if(map.getSource('battle-dots')){
+    map.getSource('battle-dots').setData(gj);
+  } else {
+    map.addSource('battle-dots',{type:'geojson',data:gj});
+    // Uneaten dots — white
+    map.addLayer({id:'battle-uneaten',type:'circle',source:'battle-dots',
+      filter:['==',['get','eaten'],false],
+      paint:{
+        'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],
+        'circle-color':'#ffffff','circle-opacity':0.9,
+        'circle-stroke-width':1.5,'circle-stroke-color':'rgba(255,255,255,0.4)'
+      }});
+    // Eaten dots — colored by player
+    map.addLayer({id:'battle-eaten',type:'circle',source:'battle-dots',
+      filter:['==',['get','eaten'],true],
+      paint:{
+        'circle-radius':['interpolate',['linear'],['zoom'],13,4,16,7,19,10],
+        'circle-color':['get','color'],
+        'circle-opacity':0.7,
+        'circle-stroke-width':0
+      }});
+  }
+}
+
+function showBattleDots(){
+  if(map.getLayer('battle-uneaten')) map.setLayoutProperty('battle-uneaten','visibility','visible');
+  if(map.getLayer('battle-eaten'))   map.setLayoutProperty('battle-eaten','visibility','visible');
+  ['dots-reg','dots-gold','dots-lm','dots-lm-emoji','dots-eaten'].forEach(l=>{
+    if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','none');
+  });
+}
+
+function hideBattleDots(){
+  if(map.getLayer('battle-uneaten')) map.setLayoutProperty('battle-uneaten','visibility','none');
+  if(map.getLayer('battle-eaten'))   map.setLayoutProperty('battle-eaten','visibility','none');
+  ['dots-reg','dots-gold','dots-lm','dots-lm-emoji','dots-eaten'].forEach(l=>{
+    if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','visible');
+  });
+}
+
+// ── UI helpers ───────────────────────────────────────────────
+function updateBattleScore(){
+  battleMyScore=Object.values(battleDots).filter(d=>d.eaten&&d.eaterUid===window._fbUid).length;
+  document.getElementById('battleMyScore').textContent=battleMyScore;
+}
+
+function updateBattleTimer(){
+  const secs=secsTilSunday();
+  const days=Math.floor(secs/86400);
+  const hrs=Math.floor((secs%86400)/3600);
+  const mins=Math.floor((secs%3600)/60);
+  const lbl=days>0?`${days}d ${hrs}h left`:`${hrs}h ${mins}m left`;
+  const el=document.getElementById('battleTimerLbl');
+  const bar=document.getElementById('battleTimerBar');
+  if(el) el.textContent=lbl;
+  // Bar shows % of week remaining (week = 604800 secs)
+  if(bar) bar.style.width=Math.round(secs/604800*100)+'%';
+  const sub=document.getElementById('battleSub');
+  const total=Object.keys(battleDots).length;
+  const eaten=Object.values(battleDots).filter(d=>d.eaten).length;
+  if(sub&&total>0) sub.textContent=`${total-eaten} dots remaining · ${lbl}`;
+}
+
+function renderBattleLB(rows){
+  const el=document.getElementById('battleLb');if(!el)return;
+  el.innerHTML='';
+  if(!rows.length){
+    el.innerHTML='<div style="padding:10px;color:var(--text2);font-size:12px;text-align:center">No scores yet — start collecting!</div>';
+    return;
+  }
+  rows.forEach((r,i)=>{
+    const you=r.uid===window._fbUid;
+    const d=document.createElement('div');
+    d.className=`battle-row ${you?'you':''}`;
+    d.innerHTML=`
+      <div class="battle-rank">#${i+1}</div>
+      <div class="battle-av" style="background:${r.color||'#333'}">${r.emoji||'🐣'}</div>
+      <div class="battle-name">${r.displayName||'Anonymous'}${you?' (you)':''}</div>
+      <div><span class="battle-dots">${r.dots||0}</span><span class="battle-dots-lbl">dots</span></div>`;
+    el.appendChild(d);
+  });
+}
+
+// ── Toggle battle mode on/off ────────────────────────────────
+function toggleBattleMode(on){
+  battleMode=on;
+  if(on){
+    showBattleDots();
+    document.getElementById('map').classList.add('battle-mode-active');
+    initBattle();
+  } else {
+    hideBattleDots();
+    document.getElementById('map').classList.remove('battle-mode-active');
+  }
+}
+
+/* ─── EMOJI TIERS ────────────────────────────────────────────
+   Assigned by streak. Each tier unlocks at a streak milestone.
+   allDots is used as a tiebreaker within the same streak tier.  */
+const EMOJI_TIERS = [
+  { min:0,   emoji:'🐣', label:'Hatchling'   },
+  { min:1,   emoji:'🐢', label:'Slow & Steady'},
+  { min:3,   emoji:'🦊', label:'Fox Trotter'  },
+  { min:5,   emoji:'🐆', label:'Cheetah'      },
+  { min:7,   emoji:'🦅', label:'Eagle'        },
+  { min:10,  emoji:'🚀', label:'Rocket'       },
+  { min:14,  emoji:'🌟', label:'Star Walker'  },
+  { min:21,  emoji:'🔥', label:'On Fire'      },
+  { min:30,  emoji:'👑', label:'Legend'       },
+];
+
+function getEmoji(){
+  let tier = EMOJI_TIERS[0];
+  for(const t of EMOJI_TIERS){
+    if(S.streak >= t.min) tier = t;
+  }
+  return tier;
+}
+
+function updatePlayerPin(){
+  const {emoji} = getEmoji();
+  const pin = document.getElementById('ppin');
+  if(pin) pin.textContent = emoji;
+  document.getElementById('avBtn').textContent = emoji;
+}
+mapboxgl.accessToken = TOKEN;
+let map=null, playerMarker=null, playerLat=null, playerLng=null;
+let tracking=false, watchId=null, ghostOn=false, ghostPts=[];
+let dotsReady=false;
+let lastScanLat=null, lastScanLng=null;
+const RESCAN_DIST_M = 400;
+let isRescanning=false; // lock to prevent concurrent rescans
+
+/* Dot store: id → {id,lat,lng,type,pts,label} */
+const DOTS = {};
+
+/* ─── HELPERS ────────────────────────────────────────────── */
 function hav(lat1,lng1,lat2,lng2){
   const R=6371000,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
   return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 }
 
-/* GL LAYERS */
-function initGL(){
-  if(!map||map.getSource('dots'))return;
-  map.addSource('dots',{type:'geojson',data:buildGJ()});
-  map.addLayer({id:'dots-reg',type:'circle',source:'dots',
-    filter:['all',['==',['get','type'],'regular'],['!',['get','eaten']]],
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],'circle-color':'#0EB8A0','circle-opacity':0.88,'circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.18)'}});
-  map.addLayer({id:'dots-gold',type:'circle',source:'dots',
-    filter:['all',['==',['get','type'],'golden'],['!',['get','eaten']]],
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,5,16,8,19,11],'circle-color':'#F0B429','circle-opacity':1,'circle-stroke-width':2,'circle-stroke-color':'#FFD166'}});
-  map.addLayer({id:'dots-lm',type:'circle',source:'dots',
-    filter:['all',['==',['get','type'],'landmark'],['!',['get','eaten']]],
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,7,16,11,19,15],'circle-color':'#ffffff','circle-opacity':1,'circle-stroke-width':3,'circle-stroke-color':'#0EB8A0'}});
-  map.addLayer({id:'dots-eaten',type:'circle',source:'dots',
-    filter:['==',['get','eaten'],true],
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],13,2.5,16,4,19,6],'circle-color':'rgba(255,255,255,0)','circle-stroke-width':1,'circle-stroke-color':'rgba(255,255,255,0.13)'}});
-  glReady=true;
+function dotId(lat,lng){
+  // Snap to ~12m grid for dedup — eliminates duplicate clusters from overlapping tile features
+  const snLat=Math.round(lat*5000)/5000;
+  const snLng=Math.round(lng*5000)/5000;
+  return `d_${Math.round(snLat*100000)}_${Math.round(snLng*100000)}`;
 }
 
+function dotType(id){
+  // Mix the dot ID with today's date so golden positions shift each day
+  const salt = toDay().replace(/-/g,'');
+  const key = id + salt;
+  let h=0;for(let i=0;i<key.length;i++)h=(Math.imul(31,h)+key.charCodeAt(i))|0;
+  return Math.abs(h)%100<GOLD_PCT?{type:'golden',pts:10}:{type:'regular',pts:1};
+}
+
+/* Interpolate points along a LineString at DOT_STEP_M intervals */
+function interpolateLine(coords){
+  const pts=[];
+  for(let i=0;i<coords.length-1;i++){
+    const [lng1,lat1]=coords[i], [lng2,lat2]=coords[i+1];
+    const segLen=hav(lat1,lng1,lat2,lng2);
+    const steps=Math.max(1,Math.floor(segLen/DOT_STEP_M));
+    for(let s=0;s<steps;s++){
+      const t=s/steps;
+      pts.push({lat:lat1+(lat2-lat1)*t, lng:lng1+(lng2-lng1)*t});
+    }
+  }
+  // Always include last point
+  if(coords.length>0){
+    const [lng,lat]=coords[coords.length-1];
+    pts.push({lat,lng});
+  }
+  return pts;
+}
+
+/* ─── ROAD DOT GENERATION ────────────────────────────────── */
+/*
+ * Strategy: use Mapbox GL's querySourceFeatures on the 'composite' source
+ * (which contains OSM road data) to extract walkable LineString geometry,
+ * then interpolate dots along every segment.  This fires once after the
+ * map has fully loaded and all tiles in the viewport are rendered.
+ *
+ * We expand the viewport query by temporarily zooming out to capture
+ * the full 2 km radius, then restore zoom.  To avoid the "blank tile"
+ * race we wait for the 'idle' event (all tiles loaded, no pending renders).
+ */
+
+const WALKABLE_CLASSES = new Set([
+  'street','street_limited','secondary','tertiary','primary',
+  'path','pedestrian','footway','track','steps','cycleway',
+  'residential','living_street','service','unclassified',
+  'trunk','motorway_link'
+]);
+
+const SKIP_CLASSES = new Set(['motorway','ferry','aerialway','golf']);
+
+function buildRoadDots(centerLat, centerLng, silent=false){
+  lastScanLat=centerLat; lastScanLng=centerLng;
+  if(!silent) document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
+
+  // Query road features — try multiple source/layer combos
+  let allFeatures=[];
+  const combos=[
+    {source:'composite',layer:'road'},
+    {source:'mapbox',layer:'road'},
+    {source:'composite',layer:'roads'},
+  ];
+  for(const {source,layer} of combos){
+    try{
+      const f=map.querySourceFeatures(source,{sourceLayer:layer});
+      if(f.length>allFeatures.length) allFeatures=f;
+    }catch(e){}
+  }
+
+  // Fallback: queryRenderedFeatures across screen grid
+  if(allFeatures.length<10){
+    const W=map.getCanvas().width/(window.devicePixelRatio||1);
+    const H=map.getCanvas().height/(window.devicePixelRatio||1);
+    const seen=new Set();
+    for(let x=0;x<=4;x++) for(let y=0;y<=6;y++){
+      try{
+        map.queryRenderedFeatures([W*x/4,H*y/6]).forEach(f=>{
+          if((f.sourceLayer||'').toLowerCase().includes('road')){
+            const key=f.id+'_'+f.layer.id;
+            if(!seen.has(key)){seen.add(key);allFeatures.push(f);}
+          }
+        });
+      }catch(e){}
+    }
+  }
+
+  // Last resort: queryRenderedFeatures with no filter, take anything with road geometry
+  if(allFeatures.length<10){
+    const W=map.getCanvas().width/(window.devicePixelRatio||1);
+    const H=map.getCanvas().height/(window.devicePixelRatio||1);
+    const seen=new Set();
+    try{
+      map.queryRenderedFeatures([[0,0],[W,H]]).forEach(f=>{
+        const sl=(f.sourceLayer||f.layer?.['source-layer']||'').toLowerCase();
+        if(sl.includes('road')||sl.includes('street')||sl.includes('path')){
+          const key=f.id+'_'+f.layer.id;
+          if(!seen.has(key)){seen.add(key);allFeatures.push(f);}
+        }
+      });
+    }catch(e){}
+  }
+
+  console.log(`[WagaWaga] buildRoadDots: ${allFeatures.length} features`);
+
+  let added=0;
+
+  allFeatures.forEach(f=>{
+    if(!f.geometry) return;
+    const cls=(f.properties?.class||f.properties?.type||f.layer?.['source-layer']||'').toLowerCase();
+    if(SKIP_CLASSES.has(cls)) return;
+    const linesets=f.geometry.type==='LineString'?[f.geometry.coordinates]:
+                   f.geometry.type==='MultiLineString'?f.geometry.coordinates:[];
+    linesets.forEach(coords=>{
+      interpolateLine(coords).forEach(({lat,lng})=>{
+        if(hav(centerLat,centerLng,lat,lng)>SPAWN_R_M) return;
+        const id=dotId(lat,lng);
+        if(DOTS[id]) return; // dedup — skip if already exists
+        const {type,pts}=dotType(id);
+        DOTS[id]={id,lat,lng,type,pts,label:null};
+        added++;
+      });
+    });
+  });
+
+  // Landmarks — load within 10km so they always appear when nearby
+  LANDMARKS.forEach((lm,i)=>{
+    if(hav(centerLat,centerLng,lm.lat,lm.lng)>10000) return;
+    const id=`lm_${i}`;
+    if(!DOTS[id]) DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name,emoji:lm.emoji||null};
+  });
+
+  const total=Object.keys(DOTS).length;
+  console.log(`[WagaWaga] +${added} new dots (${total} total)`);
+
+  if(!silent){
+    document.getElementById('dotLoader').textContent=`✓ ${total} dots loaded`;
+    setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),2000);
+  } else if(added>0){
+    showToast(ICO.teal,`+${added} new dots ahead!`);
+  }
+
+  pushGL();
+  dotsReady=true;
+  if(playerLat!==null) updateNearby(playerLat,playerLng);
+}
+
+/* ─── GL LAYERS ──────────────────────────────────────────── */
 function buildGJ(){
   return{type:'FeatureCollection',features:Object.values(DOTS).map(d=>({
-    type:'Feature',geometry:{type:'Point',coordinates:[d.lng,d.lat]},
-    properties:{id:d.id,type:d.type,pts:d.pts,label:d.label||'',eaten:!!S.eatenIds[d.id]},
+    type:'Feature',
+    geometry:{type:'Point',coordinates:[d.lng,d.lat]},
+    properties:{id:d.id,type:d.type,pts:d.pts,label:d.label||'',emoji:d.emoji||'',eaten:!!S.eatenIds[d.id]},
   }))};
 }
 
-function refreshGL(){if(!glReady||!map||!map.getSource('dots'))return;map.getSource('dots').setData(buildGJ());}
-
-/* ═══════════════════════════════════════════════════════
-   DOT SPAWNING — place dots directly on road geometries
-   
-   Instead of a grid + road filter (which is unreliable),
-   we walk along each road line segment and place a dot
-   every DOT_INTERVAL metres. This guarantees dots only
-   appear on actual streets, paths, and sidewalks.
-═══════════════════════════════════════════════════════ */
-const DOT_INTERVAL = 25; // metres between dots on a road
-
-// Exclude non-walkable road classes
-const ROAD_EXCLUDE = new Set([
-  'motorway','motorway_link','trunk','trunk_link',
-  'ferry','aerialway','rail','subway'
-]);
-
-// Interpolate a point along a line segment at distance t (0-1)
-function lerpCoord(c1, c2, t){
-  return [c1[0]+(c2[0]-c1[0])*t, c1[1]+(c2[1]-c1[1])*t];
-}
-
-// Distance between two [lng,lat] coords in metres
-function coordDistM(c1, c2){
-  return hav(c1[1],c1[0],c2[1],c2[0]);
-}
-
-/* SPAWN DOTS — directly on rendered road geometries */
-function spawnDots(lat, lng){
-  if(!map||!glReady) return;
-  if(!map.isStyleLoaded()) return;
-
-  // Find all walkable road layers in the current style
-  const allLayers = map.getStyle().layers.map(l=>l.id);
-  const walkLayers = allLayers.filter(id=>{
-    const l = id.toLowerCase();
-    return l.includes('road') || l.includes('path') || l.includes('pedestrian') ||
-           l.includes('footway') || l.includes('walk') || l.includes('cycleway') ||
-           l.includes('steps') || l.includes('trail') || l.includes('sidewalk');
-  });
-
-  if(!walkLayers.length){
-    console.warn('No walkable layers found in map style');
+function pushGL(){
+  if(!map) return;
+  const gj = buildGJ();
+  if(map.getSource('dots')){
+    map.getSource('dots').setData(gj);
     return;
   }
+  map.addSource('dots',{type:'geojson',data:gj});
 
-  // Query all road features currently visible on screen
-  let features = [];
-  try{
-    features = map.queryRenderedFeatures(undefined, {layers: walkLayers});
-  }catch(e){ return; }
+  // Eaten (hollow outline)
+  map.addLayer({id:'dots-eaten',type:'circle',source:'dots',
+    filter:['==',['get','eaten'],true],
+    paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],13,2,16,3.5,19,5],
+      'circle-color':'rgba(255,255,255,0)',
+      'circle-stroke-width':1,
+      'circle-stroke-color':'rgba(255,255,255,0.12)'
+    }});
 
-  if(!features.length) return;
+  // Regular dots (teal)
+  map.addLayer({id:'dots-reg',type:'circle',source:'dots',
+    filter:['all',['==',['get','type'],'regular'],['==',['get','eaten'],false]],
+    paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],
+      'circle-color':'#0EB8A0',
+      'circle-opacity':0.9,
+      'circle-stroke-width':1,
+      'circle-stroke-color':'rgba(255,255,255,0.18)'
+    }});
 
-  let added = 0;
-  const seen = new Set(); // deduplicate within this spawn call
+  // Golden dots
+  map.addLayer({id:'dots-gold',type:'circle',source:'dots',
+    filter:['all',['==',['get','type'],'golden'],['==',['get','eaten'],false]],
+    paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],13,5,16,8,19,11],
+      'circle-color':'#F0B429',
+      'circle-opacity':1,
+      'circle-stroke-width':2,
+      'circle-stroke-color':'#FFD166'
+    }});
 
-  features.forEach(f=>{
-    if(!f.geometry) return;
+  // Landmark dots (white+teal ring)
+  map.addLayer({id:'dots-lm',type:'circle',source:'dots',
+    filter:['all',['==',['get','type'],'landmark'],['==',['get','eaten'],false]],
+    paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],13,7,16,11,19,15],
+      'circle-color':'#ffffff',
+      'circle-opacity':1,
+      'circle-stroke-width':3,
+      'circle-stroke-color':'#0EB8A0'
+    }});
 
-    // Skip non-walkable road classes
-    const cls = (f.properties?.class||f.properties?.type||'').toLowerCase();
-    if(ROAD_EXCLUDE.has(cls)) return;
-
-    // Get all line segments from this feature
-    const lines = f.geometry.type === 'LineString'  ? [f.geometry.coordinates] :
-                  f.geometry.type === 'MultiLineString' ? f.geometry.coordinates : [];
-
-    lines.forEach(coords=>{
-      if(coords.length < 2) return;
-
-      // Walk along each segment, placing a dot every DOT_INTERVAL metres
-      for(let i=0; i<coords.length-1; i++){
-        const c1 = coords[i];
-        const c2 = coords[i+1];
-        const segLen = coordDistM(c1, c2);
-        if(segLen < 1 || segLen > 2000) continue; // skip tiny/huge segments
-
-        const steps = Math.max(1, Math.floor(segLen / DOT_INTERVAL));
-
-        for(let s=0; s<=steps; s++){
-          const t = s / steps;
-          const [dLng, dLat] = lerpCoord(c1, c2, t);
-
-          // Skip if outside spawn radius
-          if(hav(lat, lng, dLat, dLng) > SPAWN_M) continue;
-
-          // Snap to grid for stable IDs
-          const id = dotId(dLat, dLng);
-          if(DOTS[id] || seen.has(id)) continue;
-          seen.add(id);
-
-          const {type, pts} = dotType(id);
-          DOTS[id] = {id, lat:dLat, lng:dLng, type, pts, label:null};
-          added++;
-        }
-      }
-    });
-  });
-
-  if(added > 0) refreshGL();
-  updateNearby(lat, lng);
+  // Emoji label for custom landmarks
+  map.addLayer({id:'dots-lm-emoji',type:'symbol',source:'dots',
+    filter:['all',['==',['get','type'],'landmark'],['==',['get','eaten'],false],['!=',['get','emoji'],'']],
+    layout:{
+      'text-field':['get','emoji'],
+      'text-size':['interpolate',['linear'],['zoom'],13,10,16,16,19,22],
+      'text-allow-overlap':true,
+      'text-ignore-placement':true,
+    }});
 }
 
-// ── PARTNER DOTS — HTML markers (not GL) for custom branding ──
-const partnerMarkers={};
-
-function spawnPartners(lat,lng){
-  PARTNERS.forEach(p=>{
-    if(partnerMarkers[p.id])return;
-    // Show all partner locations regardless of distance — they're landmarks
-
-    const el=document.createElement('div');
-    el.className='partner-dot';
-    el.style.background=p.color;
-
-    // Coffee cup SVG icon
-    el.innerHTML=`
-      <div class="partner-dot-ring"></div>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-        stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M18 8h1a4 4 0 0 1 0 8h-1"/>
-        <path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/>
-        <line x1="6" y1="1" x2="6" y2="4"/>
-        <line x1="10" y1="1" x2="10" y2="4"/>
-        <line x1="14" y1="1" x2="14" y2="4"/>
-      </svg>`;
-
-    // Check if eaten today
-    const eatenKey=`partner_${p.id}_${toDay()}`;
-    if(localStorage.getItem(eatenKey)){
-      el.classList.add('eaten');
-    }
-
-    el.addEventListener('click',()=>collectPartner(p,el));
-
-    const m=new mapboxgl.Marker({element:el,anchor:'center'})
-      .setLngLat([p.lng,p.lat])
-      .addTo(map);
-
-    partnerMarkers[p.id]={marker:m,el,data:p};
-  });
+function refreshGL(){
+  if(!map||!map.getSource('dots')) return;
+  map.getSource('dots').setData(buildGJ());
 }
 
-function collectPartner(p,el){
-  const eatenKey=`partner_${p.id}_${toDay()}`;
-  if(localStorage.getItem(eatenKey))return; // already collected today
-
-  // Mark eaten for today
-  localStorage.setItem(eatenKey,'1');
-  el.classList.add('eaten');
-
-  // Add points
-  S.todayDots+=p.pts;S.weekDots+=p.pts;S.allDots+=p.pts;S.walkedToday=true;
-  save();updateUI();
-
-  // Burst fx at marker position
-  try{
-    const pos=map.project([p.lng,p.lat]);
-    spawnPartnerBurst(pos.x,pos.y,p.color);
-  }catch(e){}
-
-  // Show offer card
-  showOffer(p);
-}
-
-function spawnPartnerBurst(x,y,color){
-  const bw=document.getElementById('bw');
-  for(let i=0;i<16;i++){
-    const b=document.createElement('div');b.className='burst';
-    const ang=(i/16)*Math.PI*2,dist=30+Math.random()*50;
-    b.style.cssText=`left:${x}px;top:${y}px;width:10px;height:10px;background:${color==='#1C1C1C'?'#ffffff':color};--bx:${Math.cos(ang)*dist}px;--by:${Math.sin(ang)*dist}px`;
-    bw.appendChild(b);setTimeout(()=>b.remove(),650);
-  }
-  // Gold score pop
-  const p2=document.createElement('div');p2.className='pop';
-  p2.style.cssText=`left:${x+10}px;top:${y-12}px;color:var(--gold);font-size:18px;font-weight:900;text-shadow:0 2px 12px rgba(240,180,41,.6)`;
-  p2.textContent='+100';bw.appendChild(p2);setTimeout(()=>p2.remove(),800);
-}
-
-function showOffer(p){
-  document.getElementById('offerBrand').textContent=p.brand;
-  document.getElementById('offerLoc').textContent=p.neighborhood;
-  document.getElementById('offerPts').textContent='+'+p.pts;
-  document.getElementById('offerText').textContent=p.offer;
-  document.getElementById('offerLogo').style.background=
-    p.color==='#1C1C1C'?'rgba(255,255,255,.08)':'rgba('+hexToRgb(p.color)+',0.15)';
-  document.getElementById('offerLogo').style.border=
-    '1px solid '+(p.color==='#1C1C1C'?'rgba(255,255,255,.12)':p.color+'44');
-  document.getElementById('offerOverlay').classList.add('show');
-}
-
-function closeOffer(){
-  document.getElementById('offerOverlay').classList.remove('show');
-}
-
-function hexToRgb(hex){
-  const r=parseInt(hex.slice(1,3),16);
-  const g=parseInt(hex.slice(3,5),16);
-  const b=parseInt(hex.slice(5,7),16);
-  return `${r},${g},${b}`;
-}
-
-// Also check proximity for partner dots during walk
-function checkPartnerCollect(lat,lng){
-  PARTNERS.forEach(p=>{
-    const eatenKey=`partner_${p.id}_${toDay()}`;
-    if(localStorage.getItem(eatenKey))return;
-    if(hav(lat,lng,p.lat,p.lng)<=COLLECT_M){
-      const d=partnerMarkers[p.id];
-      if(d)collectPartner(p,d.el);
-    }
-  });
-}
-
-function spawnLM(lat,lng){
-  LANDMARKS.forEach((lm,i)=>{
-    const id=`lm_${i}`;if(DOTS[id])return;
-    // Show all landmarks always
-    DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name};
-  });
-  refreshGL();
-}
-
-/* COLLECT */
-function checkCollect(lat,lng){
-  Object.values(DOTS).forEach(d=>{
-    if(S.eatenIds[d.id])return;
-    if(hav(lat,lng,d.lat,d.lng)<=COLLECT_M)collect(d);
-  });
-}
-
-// Debounced challenge + territory render
-let renderChTimer=null;
-function debouncedRenderCh(){clearTimeout(renderChTimer);renderChTimer=setTimeout(()=>{renderCh();renderTerr();renderBattle();},300);}
-
-function collect(d){
-  if(S.eatenIds[d.id])return;
-  S.eatenIds[d.id]=true;
-  S.todayDots+=d.pts;S.weekDots+=d.pts;S.allDots+=d.pts;S.walkedToday=true;
-  S.collectedToday.unshift({pts:d.pts,lat:d.lat,lng:d.lng,type:d.type,
-    time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
-  if(S.collectedToday.length>100)S.collectedToday.pop();
-
-  const now=new Date();
-  const hr=now.getHours();
-  const ch=id=>S.challenges?.find(c=>c.id===id);
-  const done=(c,msg)=>{if(!c.done){c.done=true;showToast(ICO.star,msg);}};
-
-  // ── c1 Daily Grind: 50 dots today ──
-  const _c1=ch('c1');
-  if(_c1&&!_c1.done){_c1.prog=S.todayDots;if(_c1.prog>=_c1.total)done(_c1,'Daily Grind complete! +300 pts');}
-
-  // ── c7 Night Owl: 20 dots after 9pm ──
-  const _c7=ch('c7');
-  if(_c7&&!_c7.done&&hr>=21){
-    if(!S.nightOwlDay||S.nightOwlDay!==toDay()){S.nightOwlDay=toDay();_c7.prog=0;}
-    _c7.prog++;
-    if(_c7.prog>=_c7.total)done(_c7,'Night Owl complete! +200 pts');
-  }
-
-  // ── c8 Speed Run: 10 dots in under 5 minutes ──
-  const _c8=ch('c8');
-  if(_c8&&!_c8.done){
-    const nowMs=Date.now();
-    if(!S.speedRunStart){S.speedRunStart=nowMs;S.speedRunCount=0;}
-    if(nowMs-S.speedRunStart<=5*60*1000){
-      S.speedRunCount++;
-      _c8.prog=S.speedRunCount;
-      if(_c8.prog>=_c8.total)done(_c8,'Speed Run complete! +250 pts');
-    } else {
-      // Reset if window expired
-      S.speedRunStart=nowMs;S.speedRunCount=1;_c8.prog=1;
-    }
-  }
-
-  // ── c2 Early Bird: 3 mornings before 8am ──
-  const _c2=ch('c2');
-  if(_c2&&!_c2.done&&hr<8){
-    if(!S.earlyBirdDay)S.earlyBirdDay='';
-    if(S.earlyBirdDay!==toDay()){
-      S.earlyBirdDay=toDay();
-      _c2.prog=Math.min(_c2.total,(_c2.prog||0)+1);
-      if(_c2.prog>=_c2.total)done(_c2,'Early Bird complete! +300 pts');
-      else showToast(ICO.walk,`Early Bird: ${_c2.prog}/${_c2.total} mornings`);
-    }
-  }
-
-  // ── c3 Explorer: 5 neighborhoods ──
-  const _c3=ch('c3');
-  if(_c3&&!_c3.done){
-    const terr=getTerritoryFor(d.lat,d.lng);
-    if(terr){
-      if(!S.walkedNeighborhoods)S.walkedNeighborhoods=[];
-      if(!S.walkedNeighborhoods.includes(terr.name)){
-        S.walkedNeighborhoods.push(terr.name);
-        _c3.prog=S.walkedNeighborhoods.length;
-        if(_c3.prog>=_c3.total)done(_c3,'Explorer complete! +750 pts');
-        else showToast(ICO.map,`Explorer: ${_c3.prog}/${_c3.total} neighborhoods`);
-      }
-    }
-  }
-
-  // ── c9 Consistent: walk 5 days this week ──
-  const _c9=ch('c9');
-  if(_c9&&!_c9.done){
-    if(!S.walkedDaysThisWeek)S.walkedDaysThisWeek=[];
-    if(!S.walkedDaysThisWeek.includes(toDay())){
-      S.walkedDaysThisWeek.push(toDay());
-      _c9.prog=S.walkedDaysThisWeek.length;
-      if(_c9.prog>=_c9.total)done(_c9,'Consistent complete! +500 pts');
-    }
-  }
-
-  // ── c11 Cartographer: 10 unique blocks in one walk ──
-  const _c11=ch('c11');
-  if(_c11&&!_c11.done&&tracking){
-    if(!S.blocksThisWalk)S.blocksThisWalk=[];
-    const blockKey=`${Math.floor(d.lat*200)}_${Math.floor(d.lng*200)}`;
-    if(!S.blocksThisWalk.includes(blockKey)){
-      S.blocksThisWalk.push(blockKey);
-      _c11.prog=S.blocksThisWalk.length;
-      if(_c11.prog>=_c11.total)done(_c11,'Cartographer complete! +600 pts');
-    }
-  }
-
-  // ── c4 Golden Hunter: 10 golden dots ──
-  if(d.type==='golden'){
-    const _c4=ch('c4');
-    if(_c4&&!_c4.done){_c4.prog++;if(_c4.prog>=_c4.total)done(_c4,'Golden Hunter complete! +1500 pts');}
-  }
-
-  // ── c12 Century Club: 100 dots in one day (combined with c1 todayDots check) ──
-  const _c12=ch('c12');
-  if(_c12&&!_c12.done&&S.todayDots>=_c12.total)done(_c12,'Century Club! 100 dots today! +500 pts');
-
-  // ── c13 Tourist: all 8 landmarks ──
-  if(d.type==='landmark'){
-    const _c13=ch('c13');
-    if(_c13&&!_c13.done){
-      if(!S.landmarksCollected)S.landmarksCollected=[];
-      if(!S.landmarksCollected.includes(d.label)){
-        S.landmarksCollected.push(d.label);
-        _c13.prog=S.landmarksCollected.length;
-        if(_c13.prog>=_c13.total)done(_c13,'Tourist complete! All 8 landmarks! +2500 pts');
-        else showToast(ICO.teal,`Landmark ${_c13.prog}/8 — ${d.label}`);
-      }
-    }
-  }
-
-  // ── c5 Territory King & c10 Top Dog checked separately (not per dot) ──
-  // ── c6 On Fire checked at boot and streak update, not per dot ──
-
-  // ── Territory progress ──
-  updateTerritoryProgress(d.lat,d.lng);
-
-  save();refreshGL();updateUI();debouncedRenderCh();updateTrail();
-  burst(d.lng,d.lat,d.type);
-  if(d.type==='golden')showToast(ICO.star,`Golden dot! +${d.pts} pts`);
-  else if(d.type==='landmark')showToast(ICO.teal,`${d.label} — +${d.pts} pts!`);
-  nudge();
-}
-
-/* TRAIL */
-function updateTrail(){
-  if(!map||S.collectedToday.length<2)return;
-  const coords=S.collectedToday.slice().reverse().map(c=>[c.lng,c.lat]);
-  if(coords.length<2)return;
-  try{
-    if(map.getSource('trail'))map.getSource('trail').setData({type:'Feature',geometry:{type:'LineString',coordinates:coords}});
-    else{
-      map.addSource('trail',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
-      map.addLayer({id:'trail',type:'line',source:'trail',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'#F0B429','line-width':3,'line-opacity':0.38,'line-dasharray':[2,5]}});
-    }
-  }catch(e){}
-}
-
-/* MAP INIT */
-/* ── Canvas fallback map ──────────────────────────────────
-   Renders a NYC-style dark grid when Mapbox tiles fail.
-   Dots still work — just no real street map underneath.
-─────────────────────────────────────────────────────── */
-let fallbackCanvas = null;
-let fallbackCtx = null;
-let usingFallback = false;
-let fallbackPlayerLat = null, fallbackPlayerLng = null;
-
-function showCanvasFallback(){
-  if(usingFallback) return;
-  usingFallback = true;
-
-  // Hide the broken mapbox canvas
-  const mapEl = document.getElementById('map');
-  mapEl.innerHTML = '';
-
-  // Create our own canvas
-  const canvas = document.createElement('canvas');
-  canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  mapEl.appendChild(canvas);
-  fallbackCanvas = canvas;
-  fallbackCtx = canvas.getContext('2d');
-
-  drawFallbackMap();
-
-  // Re-spawn dots on canvas (no GL layers, use HTML markers instead)
-  spawnFallbackDots();
-
-  showToast(ICO.warn, 'Map tiles unavailable — using local map');
-}
-
-function drawFallbackMap(){
-  if(!fallbackCtx) return;
-  const W = fallbackCanvas.width, H = fallbackCanvas.height;
-  const ctx = fallbackCtx;
-
-  ctx.fillStyle = '#0D1117'; ctx.fillRect(0,0,W,H);
-
-  // Atmosphere
-  const atm = ctx.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,W*.7);
-  atm.addColorStop(0,'rgba(240,180,41,0.025)'); atm.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=atm; ctx.fillRect(0,0,W,H);
-
-  const avW=W/9, stH=H/18;
-
-  // Blocks
-  for(let a=0;a<8;a++) for(let s=0;s<17;s++){
-    const inPark=a<4.6&&s<7;
-    ctx.fillStyle=inPark?'rgba(10,28,8,0.9)':'rgba(14,17,26,1)';
-    ctx.beginPath(); ctx.roundRect(a*avW+2,s*stH+2,avW-4,stH-4,2); ctx.fill();
-  }
-
-  // Park
-  ctx.fillStyle='rgba(8,22,6,0.93)';
-  ctx.beginPath(); ctx.roundRect(avW*.85,stH*.85,avW*3.85,stH*6.3,3); ctx.fill();
-  ctx.fillStyle='rgba(40,110,32,0.35)'; ctx.font='500 10px Outfit';
-  ctx.textAlign='center'; ctx.fillText('Central Park',avW*2.75,stH*4);
-
-  // Streets
-  for(let a=0;a<=9;a++){
-    ctx.strokeStyle=[0,2,4,6,8].includes(a)?'rgba(255,255,255,0.065)':'rgba(255,255,255,0.032)';
-    ctx.lineWidth=[0,2,4,6,8].includes(a)?2.5:1.5;
-    ctx.beginPath(); ctx.moveTo(a*avW,0); ctx.lineTo(a*avW,H); ctx.stroke();
-  }
-  for(let s=0;s<=18;s++){
-    ctx.strokeStyle=s%3===0?'rgba(255,255,255,0.05)':'rgba(255,255,255,0.022)';
-    ctx.lineWidth=s%3===0?2:1;
-    ctx.beginPath(); ctx.moveTo(0,s*stH); ctx.lineTo(W,s*stH); ctx.stroke();
-  }
-
-  // Labels
-  const avNames=['W End','Broadway','Amsterdam','Columbus','CPW','5th','Madison','Park','Lex'];
-  ctx.fillStyle='rgba(255,255,255,0.15)'; ctx.font='400 8px Outfit'; ctx.textAlign='center';
-  avNames.forEach((n,i)=>ctx.fillText(n,(i+.5)*avW,H-5));
-
-  // Player pin in centre
-  const px=W/2, py=H/2, PR=18;
-  ctx.shadowColor='rgba(240,180,41,0.6)'; ctx.shadowBlur=20;
-  ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(px,py,PR+3,0,Math.PI*2); ctx.fill();
-  const pg=ctx.createRadialGradient(px-4,py-4,0,px,py,PR);
-  pg.addColorStop(0,'#FFE566'); pg.addColorStop(1,'#F0B429');
-  ctx.fillStyle=pg; ctx.beginPath(); ctx.arc(px,py,PR,0,Math.PI*2); ctx.fill();
-  ctx.shadowBlur=0;
-  ctx.fillStyle='rgba(0,0,0,0.65)'; ctx.font='800 13px Outfit';
-  ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.fillText(S.initials||'?',px,py);
-}
-
-function spawnFallbackDots(){
-  // Place simple HTML dot markers for fallback mode
-  const mapEl = document.getElementById('map');
-  const W = fallbackCanvas.width, H = fallbackCanvas.height;
-  const avW=W/9, stH=H/18;
-
-  for(let a=1;a<=8;a++) for(let s=1;s<=17;s++){
-    const inPark=a<4.6&&s<7;
-    if(inPark&&Math.random()<0.87) continue;
-    const x=a*avW+(Math.random()-.5)*8;
-    const y=s*stH+(Math.random()-.5)*6;
-    const id=`fd_${a}_${s}`;
-    if(S.eatenIds[id]) continue;
-
-    const dot=document.createElement('div');
-    const golden=Math.random()<0.04;
-    dot.style.cssText=`position:absolute;left:${x}px;top:${y}px;
-      width:${golden?14:10}px;height:${golden?14:10}px;
-      border-radius:50%;
-      background:${golden?'#F0B429':'#0EB8A0'};
-      border:${golden?'2px solid #FFD166':'1px solid rgba(255,255,255,0.2)'};
-      box-shadow:0 0 ${golden?12:6}px ${golden?'rgba(240,180,41,0.6)':'rgba(14,184,160,0.4)'};
-      transform:translate(-50%,-50%);
-      cursor:pointer;z-index:5`;
-    dot.addEventListener('click',()=>{
-      if(S.eatenIds[id]) return;
-      S.eatenIds[id]=true;
-      const pts=golden?10:1;
-      S.todayDots+=pts;S.weekDots+=pts;S.allDots+=pts;S.walkedToday=true;
-      save();updateUI();
-      dot.style.opacity='0.15';dot.style.boxShadow='none';
-      burst(null,null,'regular',{screenX:x,screenY:y});
-      if(golden)showToast(ICO.star,`Golden dot! +${pts} pts`);
-    });
-    mapEl.appendChild(dot);
-    DOTS[id]={id,lat:playerLat||40.7549,lng:playerLng||-73.984,type:golden?'golden':'regular',pts:golden?10:1,label:null};
-  }
-}
-
-// Override burst to accept screen coords directly
-const _origBurst = typeof burst !== 'undefined' ? burst : null;
-
+/* ─── MAP INIT ───────────────────────────────────────────── */
 function initMap(lat,lng){
-  map=new mapboxgl.Map({
+  map = new mapboxgl.Map({
     container:'map',
     style:'mapbox://styles/mapbox/dark-v11',
     center:[lng,lat],
-    zoom:16,pitch:20,bearing:0,
-    attributionControl:true,
-    failIfMajorPerformanceCaveat:false,
-  });
-
-  // Detect map render failure and show canvas fallback
-  let mapLoaded = false;
-  setTimeout(()=>{
-    if(!mapLoaded){
-      console.warn('Mapbox failed to load — using canvas fallback');
-      showCanvasFallback();
-    }
-  }, 6000);
-
-  map.on('error',(e)=>{
-    console.warn('Mapbox error:',e);
-    if(!mapLoaded) showCanvasFallback();
+    zoom:16,
+    pitch:20,
+    bearing:0,
+    attributionControl:true
   });
 
   map.on('load',()=>{
-    mapLoaded = true;
-    // Player marker
     const el=document.createElement('div');el.className='player-el';
-    el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${S.initials||'?'}</div>`;
+    el.innerHTML=`<div class="player-ring"></div><div class="player-pin" id="ppin">${getEmoji().emoji}</div>`;
     playerMarker=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
-    // Friends
-    spawnFriends(lat,lng);
-    // GL dots
-    initGL();
-    // Spawn after tiles load
-    // Wait for map to fully render all tiles before spawning dots
-    // 'idle' fires when map has no pending tiles — guaranteed road data available
-    map.once('idle',()=>{
-      buildRoadCache();
-      spawnDots(lat,lng);
-      spawnLM(lat,lng);
-      spawnPartners(lat,lng);
-      refreshGL();
+
+    let scanned=false;
+    function doScan(){
+      if(scanned) return;
+      let features=[];
+      try{
+        const combos=[
+          {source:'composite',layer:'road'},
+          {source:'mapbox',layer:'road'},
+          {source:'composite',layer:'roads'},
+        ];
+        for(const {source,layer} of combos){
+          try{
+            const f=map.querySourceFeatures(source,{sourceLayer:layer});
+            if(f.length>5){features=f;break;}
+          }catch(e){}
+        }
+        if(features.length<5){
+          const W=map.getCanvas().width/(window.devicePixelRatio||1);
+          const H=map.getCanvas().height/(window.devicePixelRatio||1);
+          const all=map.queryRenderedFeatures([[0,0],[W,H]]);
+          features=all.filter(f=>(f.sourceLayer||'').toLowerCase().includes('road'));
+        }
+      }catch(e){}
+
+      if(features.length<5){
+        setTimeout(doScan,2000);
+        return;
+      }
+      scanned=true;
+      buildRoadDots(lat,lng);
       updateTrail();
-    });
-    updateUI();renderLB('day');renderTerr();renderCh();renderRecap();renderBattle();
+    }
+    map.once('idle',()=>setTimeout(doScan,1000));
+    setTimeout(()=>{ if(!scanned){ scanned=true; buildRoadDots(lat,lng); updateTrail(); }},8000);
+
+    updateUI();renderLB('day');renderTerr();renderCh();renderRecap();
   });
 }
 
-/* FRIENDS */
+/* ─── FRIENDS ────────────────────────────────────────────── */
 function spawnFriends(lat,lng){
   FRIENDS_CFG.forEach((f,i)=>{
     const ang=(i/FRIENDS_CFG.length)*Math.PI*2;
@@ -1471,7 +1774,7 @@ function spawnFriends(lat,lng){
   });
   setInterval(()=>{
     if(!map)return;
-    FRIENDS_CFG.forEach((f,i)=>{
+    FRIENDS_CFG.forEach(f=>{
       f.dir+=(Math.random()-.5)*.5;
       if(Math.random()<.3)f.dir=Math.round(f.dir/(Math.PI/2))*(Math.PI/2);
       const nLat=f.lat+Math.sin(f.dir)*f.spd*3500,nLng=f.lng+Math.cos(f.dir)*f.spd*3500;
@@ -1482,7 +1785,158 @@ function spawnFriends(lat,lng){
   },3500);
 }
 
-/* GHOST TRAIL */
+/* ─── COLLECT ────────────────────────────────────────────── */
+function checkCollect(lat,lng){
+  if(!dotsReady) return;
+  Object.values(DOTS).forEach(d=>{
+    if(S.eatenIds[d.id]) return;
+    if(hav(lat,lng,d.lat,d.lng)<=COLLECT_M) collect(d);
+  });
+}
+
+function awardChallenge(id, bonus, msg){
+  const c=S.challenges?.find(c=>c.id===id);
+  if(!c||c.done) return;
+  c.done=true; c.prog=c.total;
+  S.todayDots+=bonus; S.weekDots+=bonus; S.allDots+=bonus;
+  S.todayBonus=(S.todayBonus||0)+bonus;
+  S.allBonus=(S.allBonus||0)+bonus;
+  walkBonus+=bonus;
+  save();
+  showToast(ICO.star,`${msg} +${bonus.toLocaleString()} pts`);
+}
+
+function collect(d){
+  if(S.eatenIds[d.id]) return;
+  S.eatenIds[d.id]=true;
+
+  const isFirstDot = S.allDots===0;
+  S.todayDots+=d.pts; S.weekDots+=d.pts; S.allDots+=d.pts; S.walkedToday=true;
+  // Track raw dot counts separately from bonus points
+  S.todayRawDots=(S.todayRawDots||0)+d.pts;
+  S.weekRawDots=(S.weekRawDots||0)+d.pts;
+  S.allRawDots=(S.allRawDots||0)+d.pts;
+  S.collectedToday.unshift({pts:d.pts,lat:d.lat,lng:d.lng,type:d.type,
+    time:new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})});
+  if(S.collectedToday.length>200) S.collectedToday.pop();
+
+  const hr=new Date().getHours();
+  const ch=id=>S.challenges?.find(c=>c.id===id);
+
+  // c1 — Daily Grind: 50 raw dots today (excludes bonus points)
+  const c1=ch('c1');
+  if(c1&&!c1.done){
+    c1.prog=S.todayRawDots||0;
+    if(c1.prog>=c1.total) awardChallenge('c1',300,'Daily Grind complete!');
+  }
+
+  // c_eb — Early Bird: 20 dots before 9am
+  if(hr<9){
+    const ceb=ch('c_eb');
+    if(ceb&&!ceb.done){ceb.prog++;if(ceb.prog>=ceb.total) awardChallenge('c_eb',200,'Early Bird complete!');}
+  }
+
+  // c_no — Night Owl: 20 dots after 8pm
+  if(hr>=20){
+    const cno=ch('c_no');
+    if(cno&&!cno.done){cno.prog++;if(cno.prog>=cno.total) awardChallenge('c_no',200,'Night Owl complete!');}
+  }
+
+  // c_sr — Speed Run: 10 dots in 5 minutes
+  const csr=ch('c_sr');
+  if(csr&&!csr.done){
+    const nowMs=Date.now();
+    if(!S.speedRunStart||nowMs-S.speedRunStart>300000){S.speedRunStart=nowMs;S.speedRunDots=0;}
+    S.speedRunDots++; csr.prog=S.speedRunDots;
+    if(csr.prog>=csr.total) awardChallenge('c_sr',150,'Speed Run complete!');
+  }
+
+  // c_fs — First Steps: very first dot ever
+  if(isFirstDot){
+    const cfs=ch('c_fs');
+    if(cfs&&!cfs.done){cfs.prog=1;awardChallenge('c_fs',50,'First Steps complete!');}
+  }
+
+  // c_100 — Century: crosses 100 total dots threshold exactly once
+  const c100=ch('c_100');
+  if(c100&&!c100.done){
+    c100.prog=S.allDots;
+    if(S.allDots>=c100.total&&S.allDots-d.pts<c100.total) awardChallenge('c_100',300,'Century complete!');
+  }
+
+  // c_leg — Legend: crosses 1000 total dots threshold exactly once
+  const cleg=ch('c_leg');
+  if(cleg&&!cleg.done){
+    cleg.prog=S.allDots;
+    if(S.allDots>=cleg.total&&S.allDots-d.pts<cleg.total) awardChallenge('c_leg',2000,'Legend complete!');
+  }
+
+  // c_fire — On Fire: award immediately when streak reaches 7
+  const cfire=ch('c_fire');
+  if(cfire&&!cfire.done){
+    cfire.prog=S.streak;
+    if(S.streak>=cfire.total) awardChallenge('c_fire',500,'On Fire! 7 day streak!');
+  }
+
+  // c3 — Explorer: 3 different neighborhoods (tracked in pushTerritoryDot)
+  const c3=ch('c3');
+  if(c3&&!c3.done){
+    c3.prog=(S.neighborhoodsThisWeek||[]).length;
+    if(c3.prog>=c3.total) awardChallenge('c3',500,'Explorer complete!');
+  }
+
+  // c_con — Consistent: days walked this week (tracked at midnight)
+  const ccon=ch('c_con');
+  if(ccon&&!ccon.done) ccon.prog=S.daysWalkedThisWeek||0;
+
+  // c_td — Top Dog: #1 on today's leaderboard (needs >1 real user)
+  const ctd=ch('c_td');
+  if(ctd&&!ctd.done&&window._liveRows?.length>1){
+    const sorted=[...window._liveRows].sort((a,b)=>b.score-a.score);
+    if(sorted[0]?.you){ctd.prog=1;awardChallenge('c_td',750,'Top Dog! You\'re #1 today!');}
+  }
+
+  // c_tk — Territory King: own 3 territories simultaneously (tracked in pushTerritoryDot)
+  const ctk=ch('c_tk');
+  if(ctk&&!ctk.done){
+    ctk.prog=S.ownedTerritories||0;
+    if(ctk.prog>=ctk.total) awardChallenge('c_tk',2000,'Territory King complete!');
+  }
+
+  // c4 — Golden Hunter: 20 golden dots
+  if(d.type==='golden'){
+    if(tracking) walkGolden++;
+    const c4=ch('c4');
+    if(c4&&!c4.done){c4.prog++;if(c4.prog>=c4.total) awardChallenge('c4',1500,'Golden Hunter complete!');}
+  }
+
+  save();refreshGL();updateUI();renderCh();updateTrail();
+  pushTerritoryDot(d.lat,d.lng,d.pts);
+  burst(d.lng,d.lat,d.type);
+  if(d.type==='golden') showToast(ICO.star,`Golden dot! +${d.pts} pts`);
+  else if(d.type==='landmark'){
+    const ico=d.emoji?`<span style="font-size:15px">${d.emoji}</span>`:ICO.teal;
+    showToast(ico,`${d.label} — +${d.pts} pts!`);
+    if(d.brand) checkBrandOffer(d);
+  }
+  nudge();
+}
+
+/* ─── TRAIL ──────────────────────────────────────────────── */
+function updateTrail(){
+  if(!map||S.collectedToday.length<2) return;
+  const coords=S.collectedToday.slice().reverse().map(c=>[c.lng,c.lat]);
+  if(coords.length<2) return;
+  try{
+    if(map.getSource('trail')) map.getSource('trail').setData({type:'Feature',geometry:{type:'LineString',coordinates:coords}});
+    else{
+      map.addSource('trail',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:coords}}});
+      map.addLayer({id:'trail',type:'line',source:'trail',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'#F0B429','line-width':3,'line-opacity':0.38,'line-dasharray':[2,5]}});
+    }
+  }catch(e){}
+}
+
+/* ─── GHOST TRAIL ────────────────────────────────────────── */
 function toggleGhost(){
   ghostOn=!ghostOn;
   document.getElementById('ghostIcon').style.stroke=ghostOn?'var(--gold)':'';
@@ -1490,131 +1944,295 @@ function toggleGhost(){
   else showToast(ICO.walk,'Ghost trail ON — your path is visible');
 }
 function addGhost(lat,lng){
-  if(!ghostOn||!map)return;
-  if(ghostPts.length>0&&hav(lat,lng,ghostPts[ghostPts.length-1]._lat,ghostPts[ghostPts.length-1]._lng)<8)return;
+  if(!ghostOn||!map) return;
+  if(ghostPts.length>0&&hav(lat,lng,ghostPts[ghostPts.length-1]._lat,ghostPts[ghostPts.length-1]._lng)<8) return;
   const el=document.createElement('div');el.style.cssText='width:8px;height:8px;border-radius:50%;background:rgba(240,180,41,0.35)';
   const m=new mapboxgl.Marker({element:el,anchor:'center'}).setLngLat([lng,lat]).addTo(map);
   m._lat=lat;m._lng=lng;ghostPts.push(m);
-  if(ghostPts.length>80)ghostPts.shift().remove();
+  if(ghostPts.length>80) ghostPts.shift().remove();
 }
 
-/* GEO */
+/* ─── GEO ────────────────────────────────────────────────── */
+function showPermState(state, msg=''){
+  document.getElementById('phoneAuthWrap').style.display = state==='auth'    ? 'flex'  : 'none';
+  document.getElementById('permError').style.display     = state==='error'   ? 'flex'  : 'none';
+  if(msg) document.getElementById('permErrorMsg').textContent = msg;
+}
+
+// Called by Firebase module after successful phone auth
+// Also called if user was already signed in (onAuthStateChanged fires on load)
 function startApp(){
-  // Show loading state — don't hide screen yet
-  const btn=document.querySelector('.perm-btn');
-  if(btn){btn.textContent='Locating…';btn.style.opacity='0.7';btn.disabled=true;}
+  // Hide phone auth, show location searching
+  document.getElementById('phoneAuthWrap').style.display='none';
+  document.getElementById('permError').style.display='none';
+  if(!('geolocation' in navigator)){
+    showPermState('error','Your browser doesn\'t support location services.');
+    return;
+  }
+  requestLocation();
+}
+window._startApp = startApp;
 
-  if(!('geolocation'in navigator)){useDemo();return;}
+function retryLocation(){
+  document.getElementById('permError').style.display='none';
+  requestLocation();
+}
 
-  // Fallback: if GPS takes more than 8s, use demo so user isn't stuck
-  const fallback=setTimeout(()=>useDemo(),8000);
-
+function requestLocation(){
   navigator.geolocation.getCurrentPosition(
     pos=>{
-      clearTimeout(fallback);
       const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
       playerLat=lat;playerLng=lng;
       setGPS('active',`±${Math.round(acc)}m`);
-      // Hide perm screen only now that we have a location
-      hidePerm();
-      initMap(lat,lng);geoName(lat,lng);askInit();
+      document.getElementById('perm').classList.add('gone');
+      initMap(lat,lng);
+      geoName(lat,lng);
     },
-    ()=>{clearTimeout(fallback);useDemo();},
-    {enableHighAccuracy:true,timeout:10000,maximumAge:5000}
+    err=>{
+      let msg='Location access was denied.';
+      if(err.code===2) msg='Your location couldn\'t be determined. Check your signal and try again.';
+      else if(err.code===3) msg='Location request timed out. Please try again.';
+      showPermState('error',msg);
+    },
+    {enableHighAccuracy:true,timeout:15000,maximumAge:0}
   );
 }
 
-function hidePerm(){
-  const p=document.getElementById('perm');
-  if(p)p.classList.add('gone');
-}
+let mapFollowing = true;
+let walkStartDots = 0;
+let walkStartTime = null;
+let walkGolden = 0;
+let walkBonus = 0;
+let isProgrammaticMove = false;
 
-function useDemo(){
-  const lat=40.7549,lng=-73.9840;playerLat=lat;playerLng=lng;
-  setGPS('error','Demo · NYC');
-  hidePerm();
-  document.getElementById('locLbl').textContent='Demo Mode · NYC';
-  initMap(lat,lng);showToast(ICO.warn,'Location denied — using NYC demo');askInit();
-}
 function startWatch(){
-  if(watchId!==null)return;
+  if(watchId!==null) return;
   watchId=navigator.geolocation.watchPosition(pos=>{
     const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
+
+    // Ignore very noisy readings
+    if(acc > 65) return;
+
     setGPS('active',`±${Math.round(acc)}m`);
-    playerLat=lat;playerLng=lng;
-    if(playerMarker)playerMarker.setLngLat([lng,lat]);
-    checkCollect(lat,lng);checkPartnerCollect(lat,lng);updateNearby(lat,lng);addGhost(lat,lng);
-    if(!startWatch._geo||Date.now()-startWatch._geo>12000){startWatch._geo=Date.now();geoName(lat,lng);}
-    if(!startWatch._last)startWatch._last={lat,lng};
-    if(hav(lat,lng,startWatch._last.lat,startWatch._last.lng)>180){
-      startWatch._last={lat,lng};
-      // Wait for new tiles to render then spawn dots on roads
-      map.once('idle',()=>{
-        spawnDots(lat,lng);
-        spawnLM(lat,lng);
-        spawnPartners(lat,lng);
-      });
+    playerLat=lat; playerLng=lng;
+    if(playerMarker) playerMarker.setLngLat([lng,lat]);
+    checkCollect(lat,lng);
+    checkBattleCollect(lat,lng);
+    updateNearby(lat,lng);
+    addGhost(lat,lng);
+
+    // Auto-follow map
+    if(mapFollowing && map){
+      isProgrammaticMove=true;
+      map.easeTo({center:[lng,lat],duration:300,essential:true});
+      setTimeout(()=>{ isProgrammaticMove=false; },400);
     }
-  },()=>setGPS('error','GPS lost'),{enableHighAccuracy:true,maximumAge:2000,timeout:20000});
+
+    if(!startWatch._geo||Date.now()-startWatch._geo>12000){
+      startWatch._geo=Date.now();geoName(lat,lng);
+    }
+
+    // Rescan dots every 400m walked — use current player position at scan time
+    if(!isRescanning && lastScanLat!==null && hav(lat,lng,lastScanLat,lastScanLng)>RESCAN_DIST_M){
+      lastScanLat=lat; lastScanLng=lng;
+      isRescanning=true;
+      setTimeout(()=>{
+        try{
+          // Use current playerLat/playerLng at scan time, not stale closure values
+          buildRoadDots(playerLat??lat, playerLng??lng, true);
+        }catch(e){
+          console.warn('[WagaWaga] rescan error',e);
+        }finally{
+          isRescanning=false;
+        }
+      },600);
+    }
+  },()=>setGPS('error','GPS lost'),{
+    enableHighAccuracy:true,
+    maximumAge:0,
+    timeout:10000
+  });
+
+  // Only pause auto-follow on genuine user drag
+  map.on('dragstart',()=>{
+    if(!isProgrammaticMove) mapFollowing=false;
+  });
 }
+
 function stopWatch(){if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}}
 function setGPS(s,t){document.getElementById('gpsBadge').className=`gps-badge ${s}`;document.getElementById('gpsLbl').textContent=t;}
+
 async function geoName(lat,lng){
   try{
     const r=await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=neighborhood,locality&access_token=${TOKEN}`);
-    const d=await r.json();if(d.features?.length)document.getElementById('locLbl').textContent=d.features[0].text;
+    const d=await r.json();if(d.features?.length) document.getElementById('locLbl').textContent=d.features[0].text;
   }catch(e){}
 }
 
-/* WALK TOGGLE */
+/* ─── WALK TOGGLE ────────────────────────────────────────── */
 function toggleWalk(){
   tracking=!tracking;
   const btn=document.getElementById('walkBtn');
   if(tracking){
-    btn.classList.add('active');document.getElementById('walkLbl').textContent='Stop Walk';
-    startWatch();centerMap();if(!S.streak)S.streak=1;save();updateUI();
+    btn.classList.add('active');
+    document.getElementById('walkLbl').textContent='Stop Walk';
+    startWatch();centerMap();
+    if(!S.streak)S.streak=1;
+    // Force rescan at walk start to ensure fresh dots at current position
+    if(playerLat!==null && !isRescanning){
+      isRescanning=true;
+      setTimeout(()=>{
+        try{ buildRoadDots(playerLat,playerLng,true); }
+        catch(e){}
+        finally{ isRescanning=false; }
+        // Reset lastScanLat so next rescan triggers after 400m from here
+        lastScanLat=playerLat; lastScanLng=playerLng;
+      },1000);
+    }
+    // Record walk start state for summary
+    walkStartDots=S.todayDots;
+    walkStartTime=Date.now();
+    walkGolden=0;
+    walkBonus=0;
+    save();updateUI();
     showToast(ICO.walk,'Walk started — collect everything!');
   }else{
-    btn.classList.remove('active');document.getElementById('walkLbl').textContent='Start Walk';
+    btn.classList.remove('active');
+    document.getElementById('walkLbl').textContent='Start Walk';
     stopWatch();setGPS('searching','Paused');
-    // Reset per-walk challenge tracking
-    S.blocksThisWalk=[];
-    S.speedRunStart=null;S.speedRunCount=0;
-    save();
+    showWalkSummary();
   }
 }
-function centerMap(){if(map&&playerLng!==null)map.flyTo({center:[playerLng,playerLat],zoom:16,speed:1.2});}
 
-/* UI */
+function showWalkSummary(){
+  const dotsThisWalk = S.todayDots - walkStartDots;
+  if(dotsThisWalk <= 0){ return; }
+  const elapsed = Date.now() - walkStartTime;
+  const mins = Math.floor(elapsed/60000);
+  const secs = Math.floor((elapsed%60000)/1000);
+  const durStr = mins>0 ? `${mins}m ${secs}s walk` : `${secs}s walk`;
+
+  // Accumulate walk time into totals
+  const elapsedMins = Math.round(elapsed/60000);
+  S.todayMins = (S.todayMins||0) + elapsedMins;
+  S.weekMins  = (S.weekMins||0)  + elapsedMins;
+  S.allMins   = (S.allMins||0)   + elapsedMins;
+  save();
+
+  document.getElementById('wsDots').textContent    = dotsThisWalk;
+  document.getElementById('wsGolden').textContent  = walkGolden;
+  document.getElementById('wsStreak').textContent  = S.streak;
+  document.getElementById('wsBonus').textContent   = walkBonus;
+  document.getElementById('wsDuration').textContent= durStr;
+  document.getElementById('walkSummary').classList.add('show');
+}
+
+function closeWalkSummary(){
+  document.getElementById('walkSummary').classList.remove('show');
+}
+
+/* ─── PROFILE MODAL ──────────────────────────────────────── */
+function openProfile(){
+  const tier=getEmoji();
+  document.getElementById('profileEmoji').textContent=tier.emoji;
+  document.getElementById('profileTierLabel').textContent=tier.label;
+  document.getElementById('profileNameInput').value=S.displayName||'';
+  document.getElementById('profileError').style.display='none';
+  document.getElementById('profileModal').classList.add('show');
+}
+
+function closeProfile(){
+  document.getElementById('profileModal').classList.remove('show');
+}
+
+async function saveProfile(){
+  const val=document.getElementById('profileNameInput').value.trim();
+  const errEl=document.getElementById('profileError');
+  if(!val){errEl.textContent='Please enter a name.';errEl.style.display='block';return;}
+  if(val.length<2){errEl.textContent='Name must be at least 2 characters.';errEl.style.display='block';return;}
+  errEl.style.display='none';
+
+  // Update local store
+  S.displayName=val;
+  save();
+  updateUI();
+  closeProfile();
+  showToast(ICO.walk,`Name updated to "${val}"!`);
+}
+function centerMap(){
+  if(map&&playerLng!==null){
+    mapFollowing=true;
+    map.flyTo({center:[playerLng,playerLat],zoom:16,speed:1.2});
+  }
+}
+
+/* ─── UI ─────────────────────────────────────────────────── */
 function fmt(n){return n>=1000?(n/1000).toFixed(1)+'k':String(n);}
 function updateUI(){
   document.getElementById('scoreToday').textContent=fmt(S.todayDots);
   document.getElementById('scoreWeek').textContent=fmt(S.weekDots);
   document.getElementById('scoreAll').textContent=fmt(S.allDots);
+
+  // Show dot count + bonus breakdown under each score
+  const todayRaw=S.todayRawDots||0, todayBonus=S.todayBonus||0;
+  const weekRaw=S.weekRawDots||0;
+  const allRaw=S.allRawDots||0, allBonus=S.allBonus||0;
+  const sub=document.getElementById('scoreTodaySub');
+  const subW=document.getElementById('scoreWeekSub');
+  const subA=document.getElementById('scoreAllSub');
+  if(sub) sub.textContent=todayBonus>0?`${todayRaw} dots + ${todayBonus} bonus`:`${todayRaw} dots`;
+  if(subW) subW.textContent=`${weekRaw} dots`;
+  if(subA) subA.textContent=allBonus>0?`${fmt(allRaw)} dots + ${fmt(allBonus)} bonus`:`${fmt(allRaw)} dots`;
+
   document.getElementById('tallyNum').textContent=S.todayDots;
   document.getElementById('streakVal').textContent=S.streak;
   document.getElementById('streakBig').textContent=S.streak;
-  const pin=document.getElementById('ppin');if(pin)pin.textContent=S.initials||'?';
-  document.getElementById('avBtn').textContent=S.initials||'?';
+
+  // Goal ring
+  const GOAL=50;
+  const pct=Math.min(1,S.todayDots/GOAL);
+  const circ=188.5;
+  const fill=document.getElementById('goalRingFill');
+  const pctEl=document.getElementById('goalRingPct');
+  if(fill){
+    fill.style.strokeDashoffset=circ-(circ*pct);
+    fill.classList.toggle('done',pct>=1);
+  }
+  if(pctEl){
+    pctEl.textContent=Math.round(pct*100)+'%';
+    pctEl.classList.toggle('done',pct>=1);
+  }
+  const goalMsg=document.getElementById('goalMsg');
+  if(goalMsg){
+    if(pct>=1) goalMsg.textContent='Daily goal reached! 🎉';
+    else if(pct>=0.75) goalMsg.textContent=`${GOAL-S.todayDots} dots to go!`;
+    else if(pct>=0.5) goalMsg.textContent='Halfway there — keep going!';
+    else if(S.todayDots>0) goalMsg.textContent='Great start — keep moving!';
+    else goalMsg.textContent='Start walking to collect dots!';
+  }
+
+  // Check for tier upgrade
+  const newTier = getEmoji();
+  if(S._lastTier && S._lastTier !== newTier.label){
+    showToast(ICO.star,`You're now a ${newTier.emoji} ${newTier.label}!`);
+  }
+  S._lastTier = newTier.label;
+  updatePlayerPin();
   document.getElementById('chSub').textContent=`${S.todayDots} / 50 · resets midnight`;
   document.getElementById('chBar').style.width=Math.min(100,S.todayDots/50*100)+'%';
-  if(S.streak>0&&new Date().getHours()>=20)document.getElementById('streakSub').textContent='Streak at risk — walk tonight!';
-  checkTopDog();
-  // c6 On Fire: check streak milestone
-  const _c6s=S.challenges?.find(c=>c.id==='c6');
-  if(_c6s&&!_c6s.done){_c6s.prog=S.streak;if(_c6s.prog>=_c6s.total){_c6s.done=true;save();showToast(ICO.fire,'On Fire! 7-day streak! +1000 pts');}}
+  if(S.streak>0&&new Date().getHours()>=20) document.getElementById('streakSub').textContent='Streak at risk — walk tonight!';
 }
+
 function updateNearby(lat,lng){
   const n=Object.values(DOTS).filter(d=>!S.eatenIds[d.id]&&hav(lat,lng,d.lat,d.lng)<80).length;
   document.getElementById('nearbyCount').textContent=n;
 }
 
-/* SHEET */
+/* ─── SHEET ──────────────────────────────────────────────── */
 let sheetOpen=true;
 function toggleSheet(){
   sheetOpen=!sheetOpen;
-  const sheet=document.getElementById('sheet');
-  sheet.classList.toggle('collapsed',!sheetOpen);
+  document.getElementById('sheet').classList.toggle('collapsed',!sheetOpen);
   const ww=document.getElementById('walkWrap'),fb=document.getElementById('fabs');
   if(sheetOpen){ww.style.bottom='';fb.style.bottom='';}
   else{ww.style.bottom='calc(var(--sb) + 66px)';fb.style.bottom='calc(var(--sb) + 66px)';}
@@ -1623,179 +2241,189 @@ function showPanel(id,el,cls){
   if(!sheetOpen){sheetOpen=true;document.getElementById('sheet').classList.remove('collapsed');document.getElementById('walkWrap').style.bottom='';document.getElementById('fabs').style.bottom='';}
   document.querySelectorAll('.panel').forEach(p=>p.classList.add('hidden'));
   document.getElementById('panel-'+id).classList.remove('hidden');
-  if(el){document.querySelectorAll('.snav').forEach(s=>s.classList.remove('og','ot'));el.classList.add(cls);}
-  if(id==='recap')renderRecap();
-  if(id==='challenges')renderCh();
-  if(id==='battle')renderBattle();
+  if(el){document.querySelectorAll('.snav').forEach(s=>s.classList.remove('og','ot','ob'));el.classList.add(cls);}
+  if(id==='recap') renderRecap();
+  if(id==='challenges') renderCh();
+  if(id==='territories') renderTerr();
+  // Toggle battle map layer
+  if(id==='battle') toggleBattleMode(true);
+  else if(battleMode) toggleBattleMode(false);
 }
 
-/* RENDER LB */
+/* ─── RENDER LEADERBOARD ─────────────────────────────────── */
 function renderLB(period){
-  const fr=LB[period]||LB.day;
-  const me={n:'You',loc:'Here',score:period==='day'?S.todayDots:period==='week'?S.weekDots:S.allDots,av:S.initials||'?',c:'#F0B429',you:true};
-  const all=period==='day'?[...fr,me].sort((a,b)=>b.score-a.score):fr;
-  const el=document.getElementById('lbList');el.innerHTML='';
-  all.forEach((e,i)=>{
-    const d=document.createElement('div');d.className=`lb-card ${e.you?'you':''}`;
-    d.innerHTML=`<div class="lbc-rank">#${i+1}</div><div class="lbc-top"><div class="lbc-av" style="background:${e.c};color:${e.you?'#1a1200':'rgba(238,240,246,.7)'}">${e.av}</div><div><div class="lbc-name">${e.n}${e.you?'<span class="ypip"></span>':''}</div><div class="lbc-loc">${e.loc}</div></div></div><div><span class="lbc-score">${e.score.toLocaleString()}</span><span class="lbc-unit">dots</span></div>`;
-    el.appendChild(d);
-  });
-}
-function setLBTab(btn,period){btn.closest('.subtabs').querySelectorAll('.stab').forEach(s=>s.classList.remove('on'));btn.classList.add('on');renderLB(period);}
+  window._lbPeriod = period;
+  window._renderLB = renderLB;
+  const el=document.getElementById('lbList');
+  el.innerHTML='';
 
-// Check Top Dog challenge — called when leaderboard renders
-function checkTopDog(){
-  const all=[...LB.day,{score:S.todayDots}].sort((a,b)=>b.score-a.score);
-  if(all[0].score===S.todayDots&&S.todayDots>0){
-    const _c10=S.challenges?.find(c=>c.id==='c10');
-    if(_c10&&!_c10.done){_c10.prog=1;_c10.done=true;showToast(ICO.trophy,"Top Dog! You are #1 today! +1000 pts");}
+  // Use live Firebase rows if available, fall back to mock data
+  const live = window._liveRows || [];
+  if(live.length > 0){
+    const sorted = [...live].sort((a,b)=>{
+      const scoreA = period==='day'?a.score : period==='week'?a.week : a.all;
+      const scoreB = period==='day'?b.score : period==='week'?b.week : b.all;
+      return scoreB - scoreA;
+    });
+    sorted.forEach((e,i)=>{
+      const score = period==='day'?e.score : period==='week'?e.week : e.all;
+      const d=document.createElement('div');
+      d.className=`lb-card ${e.you?'you':''}`;
+      d.innerHTML=`
+        <div class="lbc-rank">#${i+1}</div>
+        <div class="lbc-top">
+          <div class="lbc-av" style="background:${e.you?'var(--gold)':'#253040'};font-size:18px;color:white">${e.emoji}</div>
+          <div>
+            <div class="lbc-name">${e.n}${e.you?'<span class="ypip"></span>':''}</div>
+            <div class="lbc-loc">${e.streak} day streak 🔥</div>
+          </div>
+        </div>
+        <div><span class="lbc-score">${score.toLocaleString()}</span><span class="lbc-unit">dots</span></div>`;
+      el.appendChild(d);
+    });
+  } else {
+    // Fallback mock data while Firebase loads
+    const fr=LB[period]||LB.day;
+    const me={n:S.displayName||'You',score:period==='day'?S.todayDots:period==='week'?S.weekDots:S.allDots,emoji:getEmoji().emoji,you:true,streak:S.streak};
+    const all=[...fr.map(f=>({...f,emoji:'🐣',streak:0})),me].sort((a,b)=>b.score-a.score);
+    all.forEach((e,i)=>{
+      const d=document.createElement('div');d.className=`lb-card ${e.you?'you':''}`;
+      d.innerHTML=`
+        <div class="lbc-rank">#${i+1}</div>
+        <div class="lbc-top">
+          <div class="lbc-av" style="background:${e.you?'var(--gold)':'#253040'};font-size:18px">${e.emoji||'🐣'}</div>
+          <div>
+            <div class="lbc-name">${e.n}${e.you?'<span class="ypip"></span>':''}</div>
+            <div class="lbc-loc">${e.streak||0} day streak 🔥</div>
+          </div>
+        </div>
+        <div><span class="lbc-score">${(e.score||0).toLocaleString()}</span><span class="lbc-unit">dots</span></div>`;
+      el.appendChild(d);
+    });
   }
 }
-
-/* RENDER TERRITORIES */
-function renderTerr(){
-  const el=document.getElementById('terrList');el.innerHTML='';
-  TERRS.forEach(t=>{
-    const owned=t.status==='owned';
-    const barC=owned?'var(--gold)':t.ok==='teal'?'var(--teal)':'rgba(255,255,255,.2)';
-    const dotC=owned?'var(--gold)':t.ok==='teal'?'var(--teal)':'rgba(255,255,255,.25)';
-    const d=document.createElement('div');d.className=`terr-card ${owned?'owned':''} ${t.cont?'contested':''}`;
-    d.innerHTML=`${owned?'<div class="terr-badge yours">Yours</div>':t.cont?'<div class="terr-badge cont">Contested</div>':''}<div class="terr-name">${t.name}</div><div class="terr-owner"><div style="width:6px;height:6px;border-radius:50%;background:${dotC};flex-shrink:0"></div>${t.owner}</div><div class="terr-bar-bg"><div class="terr-bar" style="width:${t.pct}%;background:${barC}"></div></div><div class="terr-pct">${t.pct}% coverage</div>`;
-    el.appendChild(d);
-  });
+function setLBTab(btn,period){
+  btn.closest('.subtabs').querySelectorAll('.stab').forEach(s=>s.classList.remove('on'));
+  btn.classList.add('on');
+  window._lbPeriod=period;
+  // Switch to the correct period's cached rows
+  if(window._liveRowsByPeriod?.[period]){
+    window._liveRows=window._liveRowsByPeriod[period];
+  }
+  renderLB(period);
 }
 
-/* RENDER CHALLENGES */
+/* ─── RENDER TERRITORIES ─────────────────────────────────── */
+function renderTerr(){
+  const el=document.getElementById('terrList');
+  el.innerHTML='<div style="padding:20px;color:var(--text2);font-size:13px;text-align:center">Loading territories…</div>';
+  loadTerritories();
+}
+
+/* ─── RENDER CHALLENGES ──────────────────────────────────── */
 function renderCh(){
   const el=document.getElementById('chList');el.innerHTML='';
-  if(!el)return;
   const clk=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>`;
-  const cats=[
-    {key:'daily',label:'Daily'},
-    {key:'weekly',label:'Weekly'},
-    {key:'achieve',label:'Achievements'},
+  const periods=[
+    {key:'daily',    label:'Daily'},
+    {key:'weekly',   label:'Weekly'},
+    {key:'monthly',  label:'Monthly'},
+    {key:'milestone',label:'Milestones'},
   ];
-  cats.forEach(cat=>{
-    const catChs=CHS.filter(c=>c.cat===cat.key);
-    if(!catChs.length)return;
+  periods.forEach(p=>{
+    const group=CHS.filter(c=>c.period===p.key);
+    if(!group.length) return;
     const hdr=document.createElement('div');
-    hdr.style.cssText='font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);padding:8px 2px 4px;flex-shrink:0';
-    hdr.textContent=cat.label;
+    hdr.style.cssText='font-size:10px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--text3);padding:6px 2px 4px';
+    hdr.textContent=p.label;
     el.appendChild(hdr);
-    catChs.forEach(c=>{
+    group.forEach(c=>{
       const sv=S.challenges?.find(s=>s.id===c.id);
       const prog=sv?sv.prog:0;
+      const done=sv?sv.done:false;
       const pct=Math.min(100,Math.round(prog/c.total*100));
-      const isDone=sv?.done||false;
-      const isActive=(prog>0&&!isDone)||(c.cat==='daily'&&!isDone);
-      const doneLabel=isDone?'<span style="font-size:9px;background:var(--gold-dim);color:var(--gold);padding:2px 6px;border-radius:6px;margin-left:6px;font-weight:700">DONE</span>':'';
-      const barColor=isDone?'var(--gold)':isActive?'var(--teal)':'var(--text3)';
       const d=document.createElement('div');
-      d.className=`ch-card ${isActive||isDone?'active':''}`;
-      d.innerHTML=`<div class="ch-icon">${CH_SVG[c.icon]||''}</div><div class="ch-body"><div class="ch-title">${c.title}${doneLabel}</div><div class="ch-sub">${c.desc}</div><div class="ch-prog"><div class="ch-bar" style="width:${pct}%;background:${barColor}"></div></div><div class="ch-meta"><div class="ch-pct" style="color:${isDone?'var(--gold)':isActive?'var(--teal-light)':'var(--text2)'}">${isDone?'Complete!':prog+' / '+c.total}</div><div class="ch-timer">${clk} ${c.timer}</div></div></div><div class="ch-reward"><div class="ch-reward-val">${isDone?'✓':'+'+c.reward.toLocaleString()}</div><span class="ch-reward-lbl">pts</span></div>`;
+      d.className=`ch-card ${!done?'active':''}`;
+      d.style.opacity=done?'0.5':'1';
+      d.innerHTML=`
+        <div class="ch-icon">${CH_SVG[c.icon]||''}</div>
+        <div class="ch-body">
+          <div class="ch-title">${done?'✓ ':''} ${c.title}</div>
+          <div class="ch-sub">${c.desc}</div>
+          <div class="ch-prog"><div class="ch-bar" style="width:${pct}%;background:${done?'var(--green)':'var(--teal)'}"></div></div>
+          <div class="ch-meta">
+            <div class="ch-pct" style="color:${done?'var(--green)':'var(--teal-light)'}">${done?'Complete':prog+' / '+c.total}</div>
+            <div class="ch-timer">${clk} ${c.timer}</div>
+          </div>
+        </div>
+        <div class="ch-reward">
+          <div class="ch-reward-val" style="color:${done?'var(--green)':'var(--gold)'}">+${c.reward.toLocaleString()}</div>
+          <span class="ch-reward-lbl">pts</span>
+        </div>`;
       el.appendChild(d);
     });
   });
 }
 
-/* RENDER RECAP */
+/* ─── RENDER RECAP ───────────────────────────────────────── */
+function fmtMins(mins){
+  if(!mins||mins<1) return '0m';
+  if(mins<60) return `${mins}m`;
+  const h=Math.floor(mins/60),m=mins%60;
+  return m>0?`${h}h ${m}m`:`${h}h`;
+}
+
 function renderRecap(){
   const wh=S.weekHistory||[];
   const wk=wh.reduce((a,b)=>a+b.dots,0)+S.todayDots;
   const best=Math.max(S.todayDots,...wh.map(d=>d.dots),0);
   const days=[...wh.map(d=>d.dots>0),S.todayDots>0].filter(Boolean).length;
-  document.getElementById('recapWrap').innerHTML=`<div class="recap-card"><div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:12px">This Week</div><div class="recap-stats"><div class="recap-stat"><div class="recap-stat-val">${wk.toLocaleString()}</div><div class="recap-stat-lbl">Total dots</div></div><div class="recap-stat"><div class="recap-stat-val">${best}</div><div class="recap-stat-lbl">Best day</div></div><div class="recap-stat"><div class="recap-stat-val">${S.streak}</div><div class="recap-stat-lbl">Streak</div></div><div class="recap-stat"><div class="recap-stat-val">${days}</div><div class="recap-stat-lbl">Active days</div></div></div><button class="share-btn" onclick="shareRecap()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>Share My Week</button></div>`;
-}
+  const weekMins=(S.weekMins||0)+(S.todayMins||0);
+  const todayMins=S.todayMins||0;
+  const allMins=S.allMins||0;
+  const allRaw=S.allRawDots||0;
+  const allBonus=S.allBonus||0;
+
+  document.getElementById('recapWrap').innerHTML=`
+    <div class="recap-card">
+      <div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin-bottom:12px">This Week</div>
+      <div class="recap-stats">
+        <div class="recap-stat"><div class="recap-stat-val">${wk.toLocaleString()}</div><div class="recap-stat-lbl">Total pts</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${best}</div><div class="recap-stat-lbl">Best day</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${S.streak}</div><div class="recap-stat-lbl">Streak 🔥</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${days}</div><div class="recap-stat-lbl">Active days</div></div>
+      </div>
+
+      <div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin:14px 0 10px">Lifetime Stats</div>
+      <div class="recap-stats">
+        <div class="recap-stat"><div class="recap-stat-val">${fmt(S.allDots)}</div><div class="recap-stat-lbl">Total pts</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${fmt(allRaw)}</div><div class="recap-stat-lbl">Dots collected</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${fmt(allBonus)}</div><div class="recap-stat-lbl">Bonus pts</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${fmtMins(allMins)}</div><div class="recap-stat-lbl">Time walked</div></div>
+      </div>
+
+      <div style="font-size:11px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--text2);margin:14px 0 10px">Time Walked</div>
+      <div class="recap-stats">
+        <div class="recap-stat"><div class="recap-stat-val">${fmtMins(todayMins)}</div><div class="recap-stat-lbl">Today</div></div>
+        <div class="recap-stat"><div class="recap-stat-val">${fmtMins(weekMins)}</div><div class="recap-stat-lbl">This week</div></div>
+      </div>
+
+      <button class="share-btn" onclick="shareRecap()" style="margin-top:14px">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>Share My Week
+      </button>
+    </div>`
+;}
+
 function shareRecap(){
-  const wh=S.weekHistory||[];const wk=wh.reduce((a,b)=>a+b.dots,0)+S.todayDots;
-  const text=`My WagaWaga Walk week:\n${wk} dots · ${S.streak} day streak\nhttps://ethanforman1994.github.io/wagawaga`;
-  if(navigator.share)navigator.share({text});
+  const wh=S.weekHistory||[];
+  const wk=wh.reduce((a,b)=>a+b.dots,0)+S.todayDots;
+  const weekMins=(S.weekMins||0)+(S.todayMins||0);
+  const text=`My WagaWaga Walk week:\n${wk} dots · ${fmtMins(weekMins)} walked · ${S.streak} day streak\nhttps://ethanforman1994.github.io/wagawaga`;
+  if(navigator.share) navigator.share({text});
   else{navigator.clipboard?.writeText(text);showToast(ICO.walk,'Copied!');}
 }
 
-/* BATTLE RENDER */
-// Dynamic battles based on territory ownership
-function renderBattle(){
-  const el=document.getElementById('battleList');
-  if(!el)return;
-  el.innerHTML='';
-
-  // Generate live battles from territory data
-  const activeBattles=[];
-
-  TERRS.forEach(t=>{
-    if(t.status==='owned'){
-      // You own it — show defense battle if contested
-      // Use stable offset (hash of name) so scores don't flicker on re-render
-      const stableOff1=Math.abs(t.name.split('').reduce((a,c)=>a+c.charCodeAt(0),0)%15)+5;
-      activeBattles.push({
-        zone:t.name,
-        yourScore:t.pct,
-        theirScore:Math.max(0,t.pct-stableOff1),
-        rival:t.rival||'Friend',
-        status:t.cont?'live':'won',
-        type:'defense',
-      });
-    } else if(t.status==='enemy'||t.status==='neutral'){
-      const stableOff2=Math.abs(t.name.split('').reduce((a,c)=>a+c.charCodeAt(0),0)%18)+8;
-      activeBattles.push({
-        zone:t.name,
-        yourScore:Math.max(0,t.pct-stableOff2),
-        theirScore:t.pct,
-        rival:t.owner==='–'?t.rival||'Devon':t.owner,
-        status:'live',
-        type:'attack',
-      });
-    }
-  });
-
-  if(!activeBattles.length){
-    el.innerHTML=`<div class="battle-empty"><div class="battle-empty-title">No active battles</div>Walk into a neighborhood to start competing for territory.</div>`;
-    return;
-  }
-
-  activeBattles.forEach(b=>{
-    const youWin=b.yourScore>b.theirScore;
-    const totalPts=Math.max(b.yourScore+b.theirScore,1);
-    const yourPct=Math.round((b.yourScore/100)*100);
-    const card=document.createElement('div');
-    card.className=`battle-card ${b.status==='live'?'active-battle':youWin?'won':''}`;
-    card.innerHTML=`
-      <div class="battle-header">
-        <div class="battle-vs">${b.type==='defense'?'Defending':'Challenging'} · ${b.zone}</div>
-        <div class="battle-status ${b.status==='live'?'live':youWin?'won':'lost'}">${b.status==='live'?'LIVE':youWin?'WINNING':'LOSING'}</div>
-      </div>
-      <div class="battle-players">
-        <div class="battle-player">
-          <div class="battle-player-name">You</div>
-          <div class="battle-player-score ${youWin?'winning':'losing'}">${b.yourScore}%</div>
-        </div>
-        <div class="battle-divider">vs</div>
-        <div class="battle-player" style="text-align:right">
-          <div class="battle-player-name">${b.rival}</div>
-          <div class="battle-player-score ${!youWin?'winning':'losing'}">${b.theirScore}%</div>
-        </div>
-      </div>
-      <div class="battle-bar-wrap">
-        <div class="battle-bar-you" style="width:${yourPct}%"></div>
-      </div>
-      <div class="battle-meta">
-        <span>Collect more dots in ${b.zone} to ${b.type==='defense'?'defend':'claim'} this territory</span>
-        <span>${youWin?'You lead':'Behind'}</span>
-      </div>
-      ${b.status==='live'?`<button class="battle-btn" onclick="centerOnTerritory('${b.zone}')">Navigate to ${b.zone}</button>`:''}`;
-    el.appendChild(card);
-  });
-}
-
-function centerOnTerritory(name){
-  const t=TERRS.find(t=>t.name===name);
-  if(!t||!map)return;
-  const lat=(t.lat1+t.lat2)/2,lng=(t.lng1+t.lng2)/2;
-  map.flyTo({center:[lng,lat],zoom:15,speed:1.2});
-}
-
-/* TOAST */
+/* ─── TOAST ──────────────────────────────────────────────── */
 let toastT;
 function showToast(icon,msg){
   const el=document.getElementById('toast');
@@ -1811,9 +2439,9 @@ const ICO={
   trophy:`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#F0B429" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4a2 2 0 0 1-2-2V5h4"/><path d="M18 9h2a2 2 0 0 0 2-2V5h-4"/><path d="M12 17v4"/><path d="M8 21h8"/><path d="M6 5v4a6 6 0 0 0 12 0V5H6z"/></svg>`,
 };
 
-/* BURST FX */
+/* ─── BURST FX ───────────────────────────────────────────── */
 function burst(lng,lat,type){
-  if(!map)return;let sp;
+  if(!map) return;let sp;
   try{const p=map.project([lng,lat]);sp={x:p.x,y:p.y};}catch(e){return;}
   const color=type==='golden'?'#F0B429':'#0EB8A0';
   const pts=type==='golden'?10:type==='landmark'?30:1;
@@ -1829,43 +2457,94 @@ function burst(lng,lat,type){
   p2.textContent=`+${pts}`;bw.appendChild(p2);setTimeout(()=>p2.remove(),750);
 }
 
-/* NUDGE */
+/* ─── NUDGE ──────────────────────────────────────────────── */
 let lastNudge=0,nudgeIdx=0;
 const NUDGES=[[ICO.warn,'Jordan is 8 dots ahead — keep going!'],[ICO.fire,'You\'re on a roll!'],[ICO.trophy,'Personal best pace today!'],[ICO.warn,'Priya is challenging your territory!']];
 function nudge(){if(Date.now()-lastNudge<45000||Math.random()>.25)return;lastNudge=Date.now();const[ic,msg]=NUDGES[nudgeIdx%NUDGES.length];nudgeIdx++;showToast(ic,msg);}
 
-/* INITIALS */
-function askInit(){
-  if(S.initials&&S.initials!=='?')return;
-  setTimeout(()=>{const v=prompt('Enter your initials to appear on the map (e.g. EF):');if(v){S.initials=v.toUpperCase().slice(0,2);save();updateUI();}},1500);
+/* ─── INITIALS ───────────────────────────────────────────── */
+function askInit(){ /* initials replaced by emoji tiers */ }
+
+/* ─── MIDNIGHT RESET ─────────────────────────────────────── */
+function doMidnightReset(){
+  S.weekHistory=S.weekHistory||[];
+  S.weekHistory.unshift({date:S.day,dots:S.todayDots,mins:S.todayMins||0});
+  if(S.weekHistory.length>7) S.weekHistory.pop();
+  S.streak=S.walkedToday?(S.streak||0)+1:0;
+
+  // Consistent challenge
+  if(S.walkedToday){
+    S.daysWalkedThisWeek=(S.daysWalkedThisWeek||0)+1;
+    const ccon=S.challenges?.find(c=>c.id==='c_con');
+    if(ccon&&!ccon.done){ccon.prog=S.daysWalkedThisWeek;if(ccon.prog>=ccon.total) awardChallenge('c_con',1000,'Consistent complete!');}
+  }
+
+  // On Fire streak challenge
+  const cfire=S.challenges?.find(c=>c.id==='c_fire');
+  if(cfire&&!cfire.done){cfire.prog=S.streak;if(cfire.prog>=cfire.total) awardChallenge('c_fire',500,'On Fire complete!');}
+
+  // Reset daily values
+  S.todayDots=0;S.eatenIds={};S.collectedToday=[];S.walkedToday=false;
+  S.day=toDay();S.speedRunStart=null;S.speedRunDots=0;
+  S.todayMins=0;
+  S.todayRawDots=0; S.todayBonus=0;
+
+  // Reset daily challenges
+  ['c1','c_eb','c_no','c_sr'].forEach(id=>{
+    const c=S.challenges?.find(c=>c.id===id);
+    if(c){c.prog=0;c.done=false;}
+  });
+
+  // Reset weekly on Monday
+  const dow=new Date().getDay();
+  if(dow===1){
+    S.neighborhoodsThisWeek=[];
+    S.daysWalkedThisWeek=0;
+    S.weekMins=0; // reset weekly minutes
+    ['c3','c_con','c_td'].forEach(id=>{
+      const c=S.challenges?.find(c=>c.id===id);
+      if(c){c.prog=0;c.done=false;}
+    });
+  }
+
+  save();
+  Object.values(DOTS).forEach(d=>{
+    if(d.type!=='landmark'){const{type,pts}=dotType(d.id);d.type=type;d.pts=pts;}
+  });
+  refreshGL();updateUI();renderCh();renderRecap();
+  showToast(ICO.walk,'Midnight — fresh dots are live!');
 }
 
-/* MIDNIGHT */
 function scheduleMidnight(){
-  const now=new Date();const ms=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now;
+  const now=new Date();
+  const ms=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1)-now;
   setTimeout(()=>{
-    S=loadStore();
-    // Reset per-walk fields
-    S.blocksThisWalk=[];
-    // Reset weekly challenges on Sunday midnight
-    if(new Date().getDay()===0){
-      S.walkedDaysThisWeek=[];
-      S.walkedNeighborhoods=[];
-      // Mark weekly + daily challenges as not done so they can be earned again
-      if(S.challenges)S.challenges.forEach(c=>{
-        if(['c2','c3','c9','c10','c11'].includes(c.id)){c.prog=0;c.done=false;}
-      });
-    }
-    save();
-    updateUI();renderCh();renderRecap();refreshGL();
-    showToast(ICO.walk,'Midnight — fresh dots are live!');
+    doMidnightReset();
     scheduleMidnight();
   },ms+1000);
 }
 
-/* BOOT */
+// When app comes back to foreground — check date reset AND resume GPS if walking
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible'){
+    // Check for midnight reset
+    if(S.day !== toDay()) doMidnightReset();
+    // Resume GPS watch if walk was active but got interrupted
+    if(tracking && watchId===null){
+      startWatch();
+      showToast(ICO.walk,'GPS resumed!');
+    }
+    // Re-center map on player
+    if(tracking && playerLat!==null && map){
+      mapFollowing=true;
+      map.easeTo({center:[playerLng,playerLat],zoom:16,duration:800});
+    }
+  }
+});
+
+/* ─── BOOT ───────────────────────────────────────────────── */
 updateUI();scheduleMidnight();
-if(S.initials&&S.initials!=='?')document.getElementById('avBtn').textContent=S.initials;
+updatePlayerPin();
 </script>
 </body>
 </html>

@@ -259,6 +259,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 .bn1{color:var(--text)}.bnsep{width:4px;height:4px;border-radius:50%;background:var(--gold);margin:0 4px 1px;display:inline-block}.bn2{color:var(--gold)}
 .brand-loc{font-size:10px;color:var(--text2);display:flex;align-items:center;gap:5px;margin-top:2px}
 .ldot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:lp 2s infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
 @keyframes lp{0%,100%{opacity:1}50%{opacity:.4;transform:scale(1.4)}}
 .topbar-right{display:flex;align-items:center;gap:8px}
 .streak-chip{display:flex;align-items:center;gap:5px;background:var(--gold-dim);border:1px solid var(--gold-border);border-radius:20px;padding:5px 10px 5px 7px;font-size:12px;font-weight:700;color:var(--gold)}
@@ -554,6 +555,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Outfit
 
   <!-- invisible reCAPTCHA anchor -->
   <div id="recaptcha-container"></div>
+
+  <!-- Loading state shown while GPS acquires after auth -->
+  <div id="permLoading" style="display:none;flex-direction:column;align-items:center;gap:16px">
+    <div style="width:48px;height:48px;border-radius:50%;border:3px solid var(--gold-border);border-top-color:var(--gold);animation:spin 1s linear infinite"></div>
+    <div class="perm-sub">Finding your location…</div>
+  </div>
 
   <!-- Location error state (shown after auth if location denied) -->
   <div id="permError" style="display:none;flex-direction:column;align-items:center;gap:14px">
@@ -2202,13 +2209,15 @@ function showPermState(state, msg=''){
 // Called by Firebase module after successful phone auth
 // Also called if user was already signed in (onAuthStateChanged fires on load)
 function startApp(){
-  // Hide phone auth, show location searching
   document.getElementById('phoneAuthWrap').style.display='none';
   document.getElementById('permError').style.display='none';
   if(!('geolocation' in navigator)){
     showPermState('error','Your browser doesn\'t support location services.');
     return;
   }
+  // Show loading state while GPS acquires
+  const loadingEl=document.getElementById('permLoading');
+  if(loadingEl) loadingEl.style.display='flex';
   requestLocation();
 }
 window._startApp = startApp;
@@ -2224,11 +2233,15 @@ function requestLocation(){
       const{latitude:lat,longitude:lng,accuracy:acc}=pos.coords;
       playerLat=lat;playerLng=lng;
       setGPS('active',`±${Math.round(acc)}m`);
+      const loadingEl=document.getElementById('permLoading');
+      if(loadingEl) loadingEl.style.display='none';
       document.getElementById('perm').classList.add('gone');
       initMap(lat,lng);
       geoName(lat,lng);
     },
     err=>{
+      const loadingEl=document.getElementById('permLoading');
+      if(loadingEl) loadingEl.style.display='none';
       let msg='Location access was denied.';
       if(err.code===2) msg='Your location couldn\'t be determined. Check your signal and try again.';
       else if(err.code===3) msg='Location request timed out. Please try again.';

@@ -1101,19 +1101,16 @@ const LANDMARKS=[
 const FRIENDS_CFG=[];
 
 /* ─── BATTLE MODE ────────────────────────────────────────────
-   Weekly shared Pac-Man board. Dots stored in Firebase, eaten
-   by one player = gone for everyone. Color trails show who
-   ate what. Resets every Monday midnight.                    */
+   Fixed Manhattan board, resets every Monday.
+   Dots stored in Firebase under battles/{weekId}/dots
+   First user to open Battle tab generates the board.        */
 
-// Player color assigned deterministically from UID
-function playerColor(uid){
-  if(!uid) return '#0EB8A0';
-  let h=0;for(let i=0;i<uid.length;i++)h=(Math.imul(31,h)+uid.charCodeAt(i))|0;
-  const COLORS=['#f87171','#fb923c','#fbbf24','#34d399','#38bdf8','#818cf8','#e879f9','#f472b6'];
-  return COLORS[Math.abs(h)%COLORS.length];
-}
+let battleMode=false;
+let battleDots={};
+let battleUnsub=null;
+let battleScoreUnsub=null;
+let battleTimerInterval=null;
 
-// Week ID = YYYY-Www (e.g. 2026-W16)
 function weekId(){
   const d=new Date();
   const jan1=new Date(d.getFullYear(),0,1);
@@ -1121,148 +1118,63 @@ function weekId(){
   return `${d.getFullYear()}-W${String(wk).padStart(2,'0')}`;
 }
 
-// Seconds until next Sunday midnight
-function secsTilSunday(){
+function secsTilMonday(){
   const now=new Date();
-  const sun=new Date(now);
-  sun.setDate(now.getDate()+(7-now.getDay())%7||7);
-  sun.setHours(0,0,0,0);
-  return Math.max(0,Math.floor((sun-now)/1000));
+  const mon=new Date(now);
+  const daysUntilMon=(8-now.getDay())%7||7;
+  mon.setDate(now.getDate()+daysUntilMon);
+  mon.setHours(0,0,0,0);
+  return Math.max(0,Math.floor((mon-now)/1000));
 }
 
-let battleMode=false;
-let battleDots={};       // id → {id,lat,lng,eaten,eaterUid,eaterColor,eaterEmoji}
-let battleMyScore=0;
-let battleUnsub=null;    // Firestore unsubscribe fn
-let battleScoreUnsub=null;
-
-// ── Initialize battle for this week ──────────────────────────
-let battleTimerInterval=null;
-
-async function initBattle(){
-  if(!window._fbDb||!window._fbFirestore||!window._fbUid) return;
-  const {collection,onSnapshot,getDocs}=window._fbFirestore;
-  const wid=weekId();
-
-  const sub=document.getElementById('battleSub');
-  if(sub) sub.textContent='Loading battle board…';
-
-  // Subscribe to battle dot changes
-  const dotsRef=collection(window._fbDb,`battles/${wid}/dots`);
-  if(battleUnsub) battleUnsub();
-  battleUnsub=onSnapshot(dotsRef,snap=>{
-    snap.docChanges().forEach(change=>{
-      const data=change.doc.data();
-      battleDots[change.doc.id]={id:change.doc.id,...data};
-    });
-    refreshBattleGL();
-    updateBattleScore();
-    updateBattleTimer();
-  });
-
-  // Subscribe to score leaderboard
-  const scoresRef=collection(window._fbDb,`battles/${wid}/scores`);
-  if(battleScoreUnsub) battleScoreUnsub();
-  battleScoreUnsub=onSnapshot(scoresRef,snap=>{
-    const rows=[];
-    snap.forEach(d=>rows.push({uid:d.id,...d.data()}));
-    rows.sort((a,b)=>b.dots-a.dots);
-    renderBattleLB(rows);
-  });
-
-  // Generate dots if none exist yet
-  const existing=await getDocs(dotsRef);
-  if(existing.size===0){
-    generateBattleDots(wid);
-  }
-
-  // Clear old timer before starting new one
-  if(battleTimerInterval) clearInterval(battleTimerInterval);
-  battleTimerInterval=setInterval(updateBattleTimer,60000);
-  updateBattleTimer();
+function playerColor(uid){
+  if(!uid) return '#0EB8A0';
+  let h=0;for(let i=0;i<uid.length;i++)h=(Math.imul(31,h)+uid.charCodeAt(i))|0;
+  const COLORS=['#f87171','#fb923c','#fbbf24','#34d399','#38bdf8','#818cf8','#e879f9','#f472b6'];
+  return COLORS[Math.abs(h)%COLORS.length];
 }
 
-// ── Manhattan bounding box ────────────────────────────────────
-const MANHATTAN = {
-  minLat: 40.6980, maxLat: 40.8820,
-  minLng: -74.0200, maxLng: -73.9070
+// ── Manhattan dot grid ───────────────────────────────────────
+const MANHATTAN_BOUNDS={
+  minLat:40.6980,maxLat:40.8820,
+  minLng:-74.0200,maxLng:-73.9070
 };
+const BATTLE_GRID_LAT=0.0045; // ~500m spacing — sparse but covers whole island
+const BATTLE_GRID_LNG=0.0055;
 
-// ── Generate shared dots for the week across all of Manhattan ─
-async function generateBattleDots(wid){
-  if(!window._fbFirestore) return;
-  const {doc,writeBatch,collection}=window._fbFirestore;
-  const sub=document.getElementById('battleSub');
-  if(sub) sub.textContent='Building Manhattan board…';
-
-  // Sample a grid of points across Manhattan at ~200m spacing
-  // and use Mapbox Tilequery to find road points at each sample
-  const GRID_LAT = 0.0018; // ~200m
-  const GRID_LNG = 0.0022;
-  const dots = {};
-  const DOT_SPACING = 0.0003; // ~25m snap grid for dedup
-
-  function snapKey(lat,lng){
-    const sLat=Math.round(lat/DOT_SPACING)*DOT_SPACING;
-    const sLng=Math.round(lng/DOT_SPACING)*DOT_SPACING;
-    return `${Math.round(sLat*100000)}_${Math.round(sLng*100000)}`;
-  }
-
-  // Query Mapbox Tilequery API for roads at a grid of points
-  const points=[];
-  for(let lat=MANHATTAN.minLat;lat<=MANHATTAN.maxLat;lat+=GRID_LAT){
-    for(let lng=MANHATTAN.minLng;lng<=MANHATTAN.maxLng;lng+=GRID_LNG){
-      points.push({lat,lng});
+function generateManhattanGrid(){
+  const dots=[];
+  let i=0;
+  for(let lat=MANHATTAN_BOUNDS.minLat;lat<=MANHATTAN_BOUNDS.maxLat;lat+=BATTLE_GRID_LAT){
+    for(let lng=MANHATTAN_BOUNDS.minLng;lng<=MANHATTAN_BOUNDS.maxLng;lng+=BATTLE_GRID_LNG){
+      // Add some jitter so dots don't look like a perfect grid
+      const jLat=lat+(Math.sin(i*7.3)*BATTLE_GRID_LAT*0.3);
+      const jLng=lng+(Math.cos(i*5.1)*BATTLE_GRID_LNG*0.3);
+      dots.push({id:`bd_${i}`,lat:jLat,lng:jLng,eaten:false,eaterUid:null,eaterColor:null});
+      i++;
     }
   }
+  return dots;
+}
 
-  if(sub) sub.textContent=`Querying ${points.length} road points…`;
+// ── Generate board (called once per week) ────────────────────
+async function generateBattleBoard(wid){
+  if(!window._fbFirestore||!window._fbDb) return;
+  const {doc,writeBatch}=window._fbFirestore;
+  const sub=document.getElementById('battleSub');
+  if(sub) sub.textContent='Generating weekly board…';
 
-  // Process in parallel batches of 10
-  const BATCH=10;
-  let found=0;
-  for(let i=0;i<points.length;i+=BATCH){
-    const slice=points.slice(i,i+BATCH);
-    await Promise.all(slice.map(async ({lat,lng})=>{
-      try{
-        const r=await fetch(
-          `https://api.mapbox.com/v4/mapbox.mapbox-streets-v8/tilequery/${lng},${lat}.json?layers=road&limit=5&radius=100&access_token=${TOKEN}`
-        );
-        const d=await r.json();
-        if(!d.features) return;
-        d.features.forEach(f=>{
-          if(!f.geometry?.coordinates) return;
-          const [flng,flat]=f.geometry.coordinates;
-          // Filter non-walkable road types
-          const cls=(f.properties?.class||'').toLowerCase();
-          if(['motorway','trunk','ferry'].includes(cls)) return;
-          const key=snapKey(flat,flng);
-          if(!dots[key]) dots[key]={lat:flat,lng:flng};
-          found++;
-        });
-      }catch(e){}
-    }));
-    if(sub) sub.textContent=`Found ${Object.keys(dots).length} road points…`;
-  }
-
-  // Also interpolate between grid points along road lines for denser coverage
-  const dotList=Object.values(dots);
-
-  if(sub) sub.textContent=`Writing ${dotList.length} dots to board…`;
-
-  // Write to Firebase in batches of 499
-  const WBATCH=499;
-  for(let i=0;i<dotList.length;i+=WBATCH){
+  const dots=generateManhattanGrid();
+  const CHUNK=499;
+  for(let i=0;i<dots.length;i+=CHUNK){
     const batch=writeBatch(window._fbDb);
-    dotList.slice(i,i+WBATCH).forEach((d,j)=>{
-      const id=`bd_${i+j}`;
-      const ref=doc(window._fbDb,`battles/${wid}/dots`,id);
-      batch.set(ref,{lat:d.lat,lng:d.lng,eaten:false,eaterUid:null,eaterColor:null,eaterEmoji:null});
+    dots.slice(i,i+CHUNK).forEach(d=>{
+      batch.set(doc(window._fbDb,`battles/${wid}/dots`,d.id),
+        {lat:d.lat,lng:d.lng,eaten:false,eaterUid:null,eaterColor:null});
     });
     await batch.commit();
   }
-
-  if(sub) sub.textContent=`${dotList.length} dots · ends Sunday midnight`;
+  if(sub) sub.textContent=`${dots.length} dots · resets Monday`;
 }
 
 // ── Eat a battle dot ─────────────────────────────────────────
@@ -1273,27 +1185,20 @@ async function eatBattleDot(dotId){
   const {doc,setDoc}=window._fbFirestore;
   const wid=weekId();
   const color=playerColor(window._fbUid);
-  const emoji=getEmoji().emoji;
-
-  // Optimistically update local state
-  bd.eaten=true;bd.eaterUid=window._fbUid;bd.eaterColor=color;bd.eaterEmoji=emoji;
-  battleMyScore++;
+  bd.eaten=true;bd.eaterUid=window._fbUid;bd.eaterColor=color;
   refreshBattleGL();
-  updateBattleScore();
+  updateBattleMyScore();
   burst(bd.lng,bd.lat,'regular');
-
-  // Write to Firebase
   await setDoc(doc(window._fbDb,`battles/${wid}/dots`,dotId),
-    {eaten:true,eaterUid:window._fbUid,eaterColor:color,eaterEmoji:emoji},{merge:true});
-
-  // Update score
+    {eaten:true,eaterUid:window._fbUid,eaterColor:color},{merge:true});
   await setDoc(doc(window._fbDb,`battles/${wid}/scores`,window._fbUid),{
-    displayName:S.displayName||'Anonymous',emoji,color,
-    dots:battleMyScore
+    displayName:S.displayName||'Anonymous',
+    emoji:getEmoji().emoji,
+    color,
+    dots:Object.values(battleDots).filter(d=>d.eaten&&d.eaterUid===window._fbUid).length
   },{merge:true});
 }
 
-// ── Check if player is near any battle dots ───────────────────
 function checkBattleCollect(lat,lng){
   if(!battleMode) return;
   Object.values(battleDots).forEach(d=>{
@@ -1302,50 +1207,47 @@ function checkBattleCollect(lat,lng){
   });
 }
 
+// ── GL rendering ─────────────────────────────────────────────
 function refreshBattleGL(){
   if(!map) return;
-  const uneaten=Object.values(battleDots).filter(d=>!d.eaten);
-  const eaten=Object.values(battleDots).filter(d=>d.eaten);
-  const gj={type:'FeatureCollection',features:[
-    ...uneaten.map(d=>({type:'Feature',
-      geometry:{type:'Point',coordinates:[d.lng,d.lat]},
-      properties:{eaten:false,color:'#ffffff'}})),
-    ...eaten.map(d=>({type:'Feature',
-      geometry:{type:'Point',coordinates:[d.lng,d.lat]},
-      properties:{eaten:true,color:d.eaterColor||'#555'}})),
-  ]};
+  const features=Object.values(battleDots).map(d=>({
+    type:'Feature',
+    geometry:{type:'Point',coordinates:[d.lng,d.lat]},
+    properties:{eaten:d.eaten,color:d.eaterColor||'#888'}
+  }));
+  const gj={type:'FeatureCollection',features};
   if(map.getSource('battle-dots')){
     map.getSource('battle-dots').setData(gj);
-  }
-}
-
-function showBattleDots(){
-  // Add battle GL layers if they don't exist yet
-  if(!map.getSource('battle-dots')){
-    const emptyGJ={type:'FeatureCollection',features:[]};
-    map.addSource('battle-dots',{type:'geojson',data:emptyGJ});
+  } else {
+    map.addSource('battle-dots',{type:'geojson',data:gj});
     map.addLayer({id:'battle-uneaten',type:'circle',source:'battle-dots',
       filter:['==',['get','eaten'],false],
       paint:{
-        'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],
-        'circle-color':'#ffffff','circle-opacity':0.9,
-        'circle-stroke-width':1.5,'circle-stroke-color':'rgba(255,255,255,0.4)'
+        'circle-radius':['interpolate',['linear'],['zoom'],10,4,13,6,16,9],
+        'circle-color':'#ffffff',
+        'circle-opacity':0.85,
+        'circle-stroke-width':1.5,
+        'circle-stroke-color':'rgba(255,255,255,0.3)'
       }});
     map.addLayer({id:'battle-eaten',type:'circle',source:'battle-dots',
       filter:['==',['get','eaten'],true],
       paint:{
-        'circle-radius':['interpolate',['linear'],['zoom'],13,4,16,7,19,10],
+        'circle-radius':['interpolate',['linear'],['zoom'],10,4,13,6,16,9],
         'circle-color':['get','color'],
-        'circle-opacity':0.7,
+        'circle-opacity':0.65,
         'circle-stroke-width':0
       }});
   }
+}
+
+function showBattleDots(){
+  refreshBattleGL();
   if(map.getLayer('battle-uneaten')) map.setLayoutProperty('battle-uneaten','visibility','visible');
   if(map.getLayer('battle-eaten'))   map.setLayoutProperty('battle-eaten','visibility','visible');
   ['dots-reg','dots-gold','dots-lm','dots-nav','dots-eaten'].forEach(l=>{
     if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','none');
   });
-  Object.values(_lmMarkers).forEach(m=>{ const el=m.getElement(); if(el) el.style.display='none'; });
+  Object.values(_lmMarkers).forEach(m=>{const el=m.getElement();if(el)el.style.display='none';});
 }
 
 function hideBattleDots(){
@@ -1354,27 +1256,25 @@ function hideBattleDots(){
   ['dots-reg','dots-gold','dots-lm','dots-nav','dots-eaten'].forEach(l=>{
     if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','visible');
   });
-  // Restore HTML landmark markers
-  Object.values(_lmMarkers).forEach(m=>{ const el=m.getElement(); if(el) el.style.display=''; });
+  Object.values(_lmMarkers).forEach(m=>{const el=m.getElement();if(el)el.style.display='';});
 }
 
-// ── UI helpers ───────────────────────────────────────────────
-function updateBattleScore(){
-  battleMyScore=Object.values(battleDots).filter(d=>d.eaten&&d.eaterUid===window._fbUid).length;
-  document.getElementById('battleMyScore').textContent=battleMyScore;
+// ── UI ───────────────────────────────────────────────────────
+function updateBattleMyScore(){
+  const score=Object.values(battleDots).filter(d=>d.eaten&&d.eaterUid===window._fbUid).length;
+  const el=document.getElementById('battleMyScore');
+  if(el) el.textContent=score;
 }
 
 function updateBattleTimer(){
-  const secs=secsTilSunday();
+  const secs=secsTilMonday();
   const days=Math.floor(secs/86400);
   const hrs=Math.floor((secs%86400)/3600);
-  const mins=Math.floor((secs%3600)/60);
-  const lbl=days>0?`${days}d ${hrs}h left`:`${hrs}h ${mins}m left`;
-  const el=document.getElementById('battleTimerLbl');
+  const lbl=days>0?`${days}d ${hrs}h left`:`${hrs}h left`;
   const bar=document.getElementById('battleTimerBar');
-  if(el) el.textContent=lbl;
-  // Bar shows % of week remaining (week = 604800 secs)
+  const timerLbl=document.getElementById('battleTimerLbl');
   if(bar) bar.style.width=Math.round(secs/604800*100)+'%';
+  if(timerLbl) timerLbl.textContent=`Resets Monday · ${lbl}`;
   const sub=document.getElementById('battleSub');
   const total=Object.keys(battleDots).length;
   const eaten=Object.values(battleDots).filter(d=>d.eaten).length;
@@ -1401,29 +1301,61 @@ function renderBattleLB(rows){
   });
 }
 
-// ── Toggle battle mode on/off ────────────────────────────────
+// ── Init battle ──────────────────────────────────────────────
+async function initBattle(){
+  if(!window._fbDb||!window._fbFirestore||!window._fbUid) return;
+  const {collection,onSnapshot,getDocs}=window._fbFirestore;
+  const wid=weekId();
+  const sub=document.getElementById('battleSub');
+  if(sub) sub.textContent='Loading battle board…';
+
+  // Listen for dot changes
+  const dotsRef=collection(window._fbDb,`battles/${wid}/dots`);
+  if(battleUnsub) battleUnsub();
+  battleUnsub=onSnapshot(dotsRef,snap=>{
+    snap.docChanges().forEach(change=>{
+      battleDots[change.doc.id]={id:change.doc.id,...change.doc.data()};
+    });
+    refreshBattleGL();
+    updateBattleMyScore();
+    updateBattleTimer();
+  });
+
+  // Listen for scores
+  const scoresRef=collection(window._fbDb,`battles/${wid}/scores`);
+  if(battleScoreUnsub) battleScoreUnsub();
+  battleScoreUnsub=onSnapshot(scoresRef,snap=>{
+    const rows=[];
+    snap.forEach(d=>rows.push({uid:d.id,...d.data()}));
+    rows.sort((a,b)=>b.dots-a.dots);
+    renderBattleLB(rows);
+  });
+
+  // Generate board if empty
+  const existing=await getDocs(dotsRef);
+  if(existing.size===0) await generateBattleBoard(wid);
+
+  // Timer
+  if(battleTimerInterval) clearInterval(battleTimerInterval);
+  battleTimerInterval=setInterval(updateBattleTimer,60000);
+  updateBattleTimer();
+}
+
+// ── Toggle ───────────────────────────────────────────────────
 function toggleBattleMode(on){
   battleMode=on;
   if(on){
-    // Collapse sheet so map is visible
-    if(sheetOpen){
-      sheetOpen=false;
-      document.getElementById('sheet').classList.add('collapsed');
-      document.getElementById('walkWrap').style.bottom='calc(var(--sb) + 66px)';
-      document.getElementById('fabs').style.bottom='calc(var(--sb) + 66px)';
-    }
     document.getElementById('map').classList.add('battle-mode-active');
-    initBattle().then(()=>{
-      // Ensure battle GL layers exist then show them
-      refreshBattleGL();
-      showBattleDots();
-    });
+    // Zoom out to show all of Manhattan
+    map.flyTo({center:[-73.9712,40.7831],zoom:11,duration:1200});
+    initBattle().then(()=>showBattleDots());
   } else {
     hideBattleDots();
     document.getElementById('map').classList.remove('battle-mode-active');
+    // Zoom back to player
+    if(playerLat!==null) map.flyTo({center:[playerLng,playerLat],zoom:16,duration:800});
   }
 }
-
 /* ─── EMOJI TIERS ────────────────────────────────────────────
    Assigned by streak. Each tier unlocks at a streak milestone.
    allDots is used as a tiebreaker within the same streak tier.  */

@@ -1302,26 +1302,28 @@ function checkBattleCollect(lat,lng){
   });
 }
 
-// ── GL layer for battle dots ──────────────────────────────────
 function refreshBattleGL(){
   if(!map) return;
   const uneaten=Object.values(battleDots).filter(d=>!d.eaten);
   const eaten=Object.values(battleDots).filter(d=>d.eaten);
-
   const gj={type:'FeatureCollection',features:[
     ...uneaten.map(d=>({type:'Feature',
       geometry:{type:'Point',coordinates:[d.lng,d.lat]},
       properties:{eaten:false,color:'#ffffff'}})),
     ...eaten.map(d=>({type:'Feature',
       geometry:{type:'Point',coordinates:[d.lng,d.lat]},
-      properties:{eaten:true,color:d.eaterColor||'#555',emoji:d.eaterEmoji||''}})),
+      properties:{eaten:true,color:d.eaterColor||'#555'}})),
   ]};
-
   if(map.getSource('battle-dots')){
     map.getSource('battle-dots').setData(gj);
-  } else {
-    map.addSource('battle-dots',{type:'geojson',data:gj});
-    // Uneaten dots — white
+  }
+}
+
+function showBattleDots(){
+  // Add battle GL layers if they don't exist yet
+  if(!map.getSource('battle-dots')){
+    const emptyGJ={type:'FeatureCollection',features:[]};
+    map.addSource('battle-dots',{type:'geojson',data:emptyGJ});
     map.addLayer({id:'battle-uneaten',type:'circle',source:'battle-dots',
       filter:['==',['get','eaten'],false],
       paint:{
@@ -1329,7 +1331,6 @@ function refreshBattleGL(){
         'circle-color':'#ffffff','circle-opacity':0.9,
         'circle-stroke-width':1.5,'circle-stroke-color':'rgba(255,255,255,0.4)'
       }});
-    // Eaten dots — colored by player
     map.addLayer({id:'battle-eaten',type:'circle',source:'battle-dots',
       filter:['==',['get','eaten'],true],
       paint:{
@@ -1339,15 +1340,11 @@ function refreshBattleGL(){
         'circle-stroke-width':0
       }});
   }
-}
-
-function showBattleDots(){
   if(map.getLayer('battle-uneaten')) map.setLayoutProperty('battle-uneaten','visibility','visible');
   if(map.getLayer('battle-eaten'))   map.setLayoutProperty('battle-eaten','visibility','visible');
   ['dots-reg','dots-gold','dots-lm','dots-nav','dots-eaten'].forEach(l=>{
     if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','none');
   });
-  // Hide HTML landmark markers during battle mode
   Object.values(_lmMarkers).forEach(m=>{ const el=m.getElement(); if(el) el.style.display='none'; });
 }
 
@@ -1408,9 +1405,19 @@ function renderBattleLB(rows){
 function toggleBattleMode(on){
   battleMode=on;
   if(on){
-    showBattleDots();
+    // Collapse sheet so map is visible
+    if(sheetOpen){
+      sheetOpen=false;
+      document.getElementById('sheet').classList.add('collapsed');
+      document.getElementById('walkWrap').style.bottom='calc(var(--sb) + 66px)';
+      document.getElementById('fabs').style.bottom='calc(var(--sb) + 66px)';
+    }
     document.getElementById('map').classList.add('battle-mode-active');
-    initBattle();
+    initBattle().then(()=>{
+      // Ensure battle GL layers exist then show them
+      refreshBattleGL();
+      showBattleDots();
+    });
   } else {
     hideBattleDots();
     document.getElementById('map').classList.remove('battle-mode-active');

@@ -1137,21 +1137,27 @@ let battleUnsub=null;    // Firestore unsubscribe fn
 let battleScoreUnsub=null;
 
 // ── Initialize battle for this week ──────────────────────────
+let battleTimerInterval=null;
+
 async function initBattle(){
   if(!window._fbDb||!window._fbFirestore||!window._fbUid) return;
-  const {collection,query,onSnapshot,doc,setDoc,getDocs,where}=window._fbFirestore;
+  const {collection,onSnapshot,getDocs}=window._fbFirestore;
   const wid=weekId();
+
+  const sub=document.getElementById('battleSub');
+  if(sub) sub.textContent='Loading battle board…';
 
   // Subscribe to battle dot changes
   const dotsRef=collection(window._fbDb,`battles/${wid}/dots`);
   if(battleUnsub) battleUnsub();
   battleUnsub=onSnapshot(dotsRef,snap=>{
-    snap.forEach(d=>{
-      const data=d.data();
-      battleDots[d.id]={id:d.id,...data};
+    snap.docChanges().forEach(change=>{
+      const data=change.doc.data();
+      battleDots[change.doc.id]={id:change.doc.id,...data};
     });
     refreshBattleGL();
     updateBattleScore();
+    updateBattleTimer();
   });
 
   // Subscribe to score leaderboard
@@ -1164,14 +1170,16 @@ async function initBattle(){
     renderBattleLB(rows);
   });
 
-  // Generate dots if none exist yet for this week
+  // Generate dots if none exist yet
   const existing=await getDocs(dotsRef);
   if(existing.size===0){
     generateBattleDots(wid);
   }
 
+  // Clear old timer before starting new one
+  if(battleTimerInterval) clearInterval(battleTimerInterval);
+  battleTimerInterval=setInterval(updateBattleTimer,60000);
   updateBattleTimer();
-  setInterval(updateBattleTimer,60000);
 }
 
 // ── Manhattan bounding box ────────────────────────────────────
@@ -1336,17 +1344,21 @@ function refreshBattleGL(){
 function showBattleDots(){
   if(map.getLayer('battle-uneaten')) map.setLayoutProperty('battle-uneaten','visibility','visible');
   if(map.getLayer('battle-eaten'))   map.setLayoutProperty('battle-eaten','visibility','visible');
-  ['dots-reg','dots-gold','dots-lm','dots-lm-emoji','dots-eaten'].forEach(l=>{
+  ['dots-reg','dots-gold','dots-lm','dots-nav','dots-eaten'].forEach(l=>{
     if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','none');
   });
+  // Hide HTML landmark markers during battle mode
+  Object.values(_lmMarkers).forEach(m=>{ const el=m.getElement(); if(el) el.style.display='none'; });
 }
 
 function hideBattleDots(){
   if(map.getLayer('battle-uneaten')) map.setLayoutProperty('battle-uneaten','visibility','none');
   if(map.getLayer('battle-eaten'))   map.setLayoutProperty('battle-eaten','visibility','none');
-  ['dots-reg','dots-gold','dots-lm','dots-lm-emoji','dots-eaten'].forEach(l=>{
+  ['dots-reg','dots-gold','dots-lm','dots-nav','dots-eaten'].forEach(l=>{
     if(map.getLayer(l)) map.setLayoutProperty(l,'visibility','visible');
   });
+  // Restore HTML landmark markers
+  Object.values(_lmMarkers).forEach(m=>{ const el=m.getElement(); if(el) el.style.display=''; });
 }
 
 // ── UI helpers ───────────────────────────────────────────────
@@ -1765,24 +1777,31 @@ async function startNavigation(dest){
       return;
     }
 
-    const coords=data.routes[0].geometry.coordinates; // [[lng,lat],...]
+    const coords=data.routes[0].geometry.coordinates;
     const dist=Math.round(data.routes[0].distance);
     const mins=Math.round(data.routes[0].duration/60);
 
-    // Place red nav dots every ~25m along the route
+    // Interpolate dots every 12m along the full route geometry
     const NAV_STEP=12;
-    let accumulated=0;
+    let dotCount=0;
+    let remainder=0;
 
     for(let i=0;i<coords.length-1;i++){
       const c1=coords[i], c2=coords[i+1];
       const segLen=hav(c1[1],c1[0],c2[1],c2[0]);
-      accumulated+=segLen;
-      if(accumulated>=NAV_STEP||i===0){
-        accumulated=0;
-        const id=`nav_${i}`;
-        DOTS[id]={id,lat:c2[1],lng:c2[0],type:'nav',pts:0,label:null,emoji:null};
+      if(segLen<0.1) continue;
+
+      let dist=remainder;
+      while(dist<=segLen){
+        const t=dist/segLen;
+        const iLng=c1[0]+(c2[0]-c1[0])*t;
+        const iLat=c1[1]+(c2[1]-c1[1])*t;
+        const id=`nav_${dotCount++}`;
+        DOTS[id]={id,lat:iLat,lng:iLng,type:'nav',pts:0,label:null,emoji:null};
         navDots.push(id);
+        dist+=NAV_STEP;
       }
+      remainder=dist-segLen;
     }
 
     // Add destination gold pulse marker
@@ -1797,16 +1816,35 @@ async function startNavigation(dest){
     navDestMarker=new mapboxgl.Marker({element:destEl,anchor:'center'})
       .setLngLat([dest.lng,dest.lat]).addTo(map);
 
-    // Show cancel button
+    // Convert to US units
+    const distFt=Math.round(dist*3.28084);
+    const distDisplay=distFt<1000?`${distFt} ft`:`${(distFt/5280).toFixed(1)} mi`;
+
+    // Show nav bar — small pill at bottom above the sheet, not blocking the map
     navCancelBtn=document.createElement('div');
     navCancelBtn.style.cssText=`
-      position:fixed;bottom:calc(var(--sb) + var(--sh) + 70px);left:50%;transform:translateX(-50%);
-      background:#EF4444;color:#fff;border:none;border-radius:100px;
-      padding:10px 24px;font-family:'Outfit',sans-serif;font-weight:700;font-size:13px;
-      cursor:pointer;z-index:40;box-shadow:0 4px 20px rgba(239,68,68,0.4);
-      display:flex;align-items:center;gap:8px;white-space:nowrap;
+      position:fixed;
+      bottom:calc(var(--sb) + var(--sh) + 8px);
+      left:14px;right:14px;
+      background:rgba(17,21,32,0.95);
+      backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+      border:1px solid rgba(239,68,68,0.35);
+      border-radius:14px;
+      padding:10px 14px;
+      font-family:'Outfit',sans-serif;
+      font-size:12px;font-weight:600;
+      color:#fff;
+      cursor:pointer;z-index:40;
+      display:flex;align-items:center;gap:10px;
     `;
-    navCancelBtn.innerHTML=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>${dest.name} · ${dist<1000?dist+'m':+(dist/1000).toFixed(1)+'km'} · ${mins} min walk`;
+    navCancelBtn.innerHTML=`
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:700;color:#fff">${dest.name}</div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:1px">${distDisplay} · ${mins} min walk</div>
+      </div>
+      <div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;color:#f87171">End</div>
+    `;
     navCancelBtn.onclick=clearNavigation;
     document.body.appendChild(navCancelBtn);
 

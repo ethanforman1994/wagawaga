@@ -1824,18 +1824,18 @@ async function startNavigation(dest){
     navCancelBtn=document.createElement('div');
     navCancelBtn.style.cssText=`
       position:fixed;
-      top:calc(var(--st) + 76px);
-      right:14px;
+      bottom:calc(var(--sb) + 90px);
+      left:14px;right:14px;
       background:rgba(17,21,32,0.92);
       backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
       border:1px solid rgba(239,68,68,0.4);
-      border-radius:12px;
-      padding:8px 14px;
+      border-radius:14px;
+      padding:10px 14px;
       font-family:'Outfit',sans-serif;
       font-size:12px;font-weight:700;
       color:#f87171;
       cursor:pointer;z-index:40;
-      display:flex;align-items:center;gap:7px;
+      display:flex;align-items:center;gap:10px;
     `;
     navCancelBtn.innerHTML=`
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>

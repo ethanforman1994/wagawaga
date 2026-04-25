@@ -1718,8 +1718,16 @@ function pushGL(){
       'circle-stroke-color':'#FFD166'
     }});
 
-  // Landmark dots (white+teal ring) — no emoji here, emoji via HTML markers
-  map.addLayer({id:'dots-lm',type:'circle',source:'dots',
+  // Navigation route dots (red)
+  map.addLayer({id:'dots-nav',type:'circle',source:'dots',
+    filter:['==',['get','type'],'nav'],
+    paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],13,3,16,5,19,7],
+      'circle-color':'#EF4444',
+      'circle-opacity':0.9,
+      'circle-stroke-width':1.5,
+      'circle-stroke-color':'#FCA5A5'
+    }});
     filter:['all',['==',['get','type'],'landmark'],['==',['get','eaten'],false]],
     paint:{
       'circle-radius':['interpolate',['linear'],['zoom'],13,7,16,11,19,15],
@@ -1733,7 +1741,199 @@ function pushGL(){
 // ── HTML icon markers for branded landmarks ──────────────────
 const _lmMarkers={};
 
-const BRAND_STYLES={
+const BRAND_OFFERS={
+  '☕':{
+    name:'Blue Bottle Coffee',
+    color:'#6F4E37',bg:'#1C1C1C',
+    offers:[
+      'Free size upgrade on any latte or cappuccino today!',
+      'Buy one get one 50% off — today only!',
+      'Free drip coffee with any food purchase.',
+      'Free cold brew upgrade when you show this screen.',
+    ]
+  },
+  '🟢':{
+    name:'Starbucks',
+    color:'#00A862',bg:'#1E3932',
+    offers:[
+      'Free Grande upgrade on your next drink today!',
+      'Buy any drink, get a pastry for $1.',
+      '20% off your order — Waga·Waga Walker exclusive!',
+      'Free extra shot on any espresso drink today.',
+    ]
+  },
+  '🍟':{
+    name:"McDonald's",
+    color:'#FFC72C',bg:'#DA291C',
+    offers:[
+      'Free medium fries with any purchase today!',
+      'Buy one Big Mac get one free — today only!',
+      'Free McFlurry with any combo meal.',
+      'Free medium drink upgrade with your order.',
+    ]
+  },
+};
+
+// ── Navigation state ─────────────────────────────────────────
+let navDest=null; // {lat,lng,name,emoji}
+let navDots=[];   // GL dot IDs added for nav route
+let navDestMarker=null;
+let navCancelBtn=null;
+
+async function startNavigation(dest){
+  closeBrandModal();
+  if(!playerLat){ showToast(ICO.warn,'GPS needed to navigate'); return; }
+
+  // Clear any existing nav
+  clearNavigation();
+  navDest=dest;
+
+  showToast(ICO.walk,`Navigating to ${dest.name}…`);
+  document.getElementById('dotLoader').textContent='⬤ Getting route…';
+  document.getElementById('dotLoader').classList.remove('gone');
+
+  try{
+    // Fetch walking route from Mapbox Directions API
+    const url=`https://api.mapbox.com/directions/v5/mapbox/walking/${playerLng},${playerLat};${dest.lng},${dest.lat}?geometries=geojson&access_token=${TOKEN}`;
+    const res=await fetch(url);
+    const data=await res.json();
+
+    if(!data.routes||!data.routes.length){
+      showToast(ICO.warn,'Could not find a route');
+      document.getElementById('dotLoader').classList.add('gone');
+      return;
+    }
+
+    const coords=data.routes[0].geometry.coordinates; // [[lng,lat],...]
+    const dist=Math.round(data.routes[0].distance);
+    const mins=Math.round(data.routes[0].duration/60);
+
+    // Place red nav dots every ~25m along the route
+    const NAV_STEP=25;
+    let accumulated=0;
+
+    for(let i=0;i<coords.length-1;i++){
+      const c1=coords[i], c2=coords[i+1];
+      const segLen=hav(c1[1],c1[0],c2[1],c2[0]);
+      accumulated+=segLen;
+      if(accumulated>=NAV_STEP||i===0){
+        accumulated=0;
+        const id=`nav_${i}`;
+        DOTS[id]={id,lat:c2[1],lng:c2[0],type:'nav',pts:0,label:null,emoji:null};
+        navDots.push(id);
+      }
+    }
+
+    // Add destination gold pulse marker
+    const destEl=document.createElement('div');
+    destEl.style.cssText='width:20px;height:20px;border-radius:50%;background:#F0B429;border:3px solid #fff;box-shadow:0 0 0 0 rgba(240,180,41,0.5);animation:navpulse 1.5s infinite';
+    if(!document.getElementById('navpulse-style')){
+      const s=document.createElement('style');
+      s.id='navpulse-style';
+      s.textContent='@keyframes navpulse{0%{box-shadow:0 0 0 0 rgba(240,180,41,0.5)}70%{box-shadow:0 0 0 14px rgba(240,180,41,0)}100%{box-shadow:0 0 0 0 rgba(240,180,41,0)}}';
+      document.head.appendChild(s);
+    }
+    navDestMarker=new mapboxgl.Marker({element:destEl,anchor:'center'})
+      .setLngLat([dest.lng,dest.lat]).addTo(map);
+
+    // Show cancel button
+    navCancelBtn=document.createElement('div');
+    navCancelBtn.style.cssText=`
+      position:fixed;bottom:calc(var(--sb) + var(--sh) + 70px);left:50%;transform:translateX(-50%);
+      background:#EF4444;color:#fff;border:none;border-radius:100px;
+      padding:10px 24px;font-family:'Outfit',sans-serif;font-weight:700;font-size:13px;
+      cursor:pointer;z-index:40;box-shadow:0 4px 20px rgba(239,68,68,0.4);
+      display:flex;align-items:center;gap:8px;white-space:nowrap;
+    `;
+    navCancelBtn.innerHTML=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>${dest.name} · ${dist<1000?dist+'m':+(dist/1000).toFixed(1)+'km'} · ${mins} min walk`;
+    navCancelBtn.onclick=clearNavigation;
+    document.body.appendChild(navCancelBtn);
+
+    // Fly map to show full route
+    const bounds=coords.reduce((b,c)=>b.extend(c),new mapboxgl.LngLatBounds(coords[0],coords[0]));
+    map.fitBounds(bounds,{padding:{top:80,bottom:280,left:40,right:40},duration:1000});
+
+    // Push nav dots to GL
+    pushGL();
+
+    document.getElementById('dotLoader').textContent=`✓ ${mins} min walk · ${dist<1000?dist+'m':+(dist/1000).toFixed(1)+'km'}`;
+    setTimeout(()=>document.getElementById('dotLoader').classList.add('gone'),3000);
+
+  }catch(e){
+    showToast(ICO.warn,'Navigation failed — try again');
+    document.getElementById('dotLoader').classList.add('gone');
+    clearNavigation();
+  }
+}
+
+function clearNavigation(){
+  // Remove nav dots
+  navDots.forEach(id=>delete DOTS[id]);
+  navDots=[];
+  // Remove dest marker
+  if(navDestMarker){ navDestMarker.remove(); navDestMarker=null; }
+  // Remove cancel button
+  if(navCancelBtn){ navCancelBtn.remove(); navCancelBtn=null; }
+  navDest=null;
+  pushGL();
+}
+
+// Check arrival at nav destination during GPS updates
+function checkNavArrival(lat,lng){
+  if(!navDest) return;
+  if(hav(lat,lng,navDest.lat,navDest.lng)<30){
+    showToast(ICO.star,`You arrived at ${navDest.name}!`);
+    clearNavigation();
+    // Re-show the offer modal
+    const d=Object.values(DOTS).find(d=>d.lat===navDest.lat&&d.lng===navDest.lng);
+    if(d) setTimeout(()=>showBrandModal(d),1000);
+  }
+}
+
+let _navCurrentDest=null;
+
+function showBrandModal(d){
+  const offer=BRAND_OFFERS[d.emoji];
+  if(!offer) return;
+  _navCurrentDest=d;
+  const text=offer.offers[Math.floor(Math.random()*offer.offers.length)];
+  const icon=document.getElementById('brandModalIcon');
+  icon.style.background=offer.bg;
+  icon.style.border=`2px solid ${offer.color}`;
+  if(d.emoji==='🍟'){
+    icon.innerHTML=`<span style="color:${offer.color};font-weight:900;font-size:20px;font-family:Arial,sans-serif">M</span>`;
+  } else if(d.emoji==='☕'){
+    icon.innerHTML=`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${offer.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>`;
+  } else {
+    icon.innerHTML=`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${offer.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
+  }
+  document.getElementById('brandModalName').textContent=offer.name;
+  document.getElementById('brandModalAddr').textContent=d.label;
+  document.getElementById('brandModalOffer').textContent=text;
+  const modal=document.getElementById('brandModal');
+  const card=document.getElementById('brandCard');
+  modal.style.pointerEvents='all';
+  modal.style.opacity='1';
+  card.style.transform='translateY(0)';
+}
+
+function closeBrandModal(){
+  const modal=document.getElementById('brandModal');
+  const card=document.getElementById('brandCard');
+  modal.style.opacity='0';
+  modal.style.pointerEvents='none';
+  card.style.transform='translateY(30px)';
+}
+
+function navigateToCurrentDest(){
+  if(!_navCurrentDest) return;
+  startNavigation({
+    lat:_navCurrentDest.lat,
+    lng:_navCurrentDest.lng,
+    name:BRAND_OFFERS[_navCurrentDest.emoji]?.name||_navCurrentDest.label,
+    emoji:_navCurrentDest.emoji
+  });
+}
   '☕': {bg:'#1C1C1C', border:'#6F4E37', svg:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C8956C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>`},
   '🟢': {bg:'#1E3932', border:'#00A862', svg:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00A862" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`},
   '🍟': {bg:'#DA291C', border:'#FFC72C', svg:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFC72C" stroke-width="2.5" stroke-linecap="round"><text x="3" y="16" fill="#FFC72C" font-size="14" font-weight="900" font-family="Arial">M</text></svg>`},
@@ -1780,7 +1980,11 @@ function syncLandmarkMarkers(){
       return;
     }
     const el=makeLmEl(d);
-    if(!el) return; // no marker for plain landmarks (GL circle handles them)
+    if(!el) return;
+    // Show brand offer on tap
+    if(d.emoji && BRAND_OFFERS[d.emoji]){
+      el.addEventListener('click',()=>showBrandModal(d));
+    }
     const m=new mapboxgl.Marker({element:el,anchor:'center'})
       .setLngLat([d.lng,d.lat])
       .addTo(map);
@@ -2108,6 +2312,7 @@ function startWatch(){
     if(playerMarker) playerMarker.setLngLat([lng,lat]);
     checkCollect(lat,lng);
     checkBattleCollect(lat,lng);
+    checkNavArrival(lat,lng);
     updateNearby(lat,lng);
     addGhost(lat,lng);
 
@@ -2636,5 +2841,53 @@ document.addEventListener('visibilitychange',()=>{
 updateUI();scheduleMidnight();
 updatePlayerPin();
 </script>
+<!-- Brand Offer Modal -->
+<div id="brandModal" style="
+  position:fixed;inset:0;z-index:100;
+  display:flex;align-items:flex-end;justify-content:center;
+  padding:0 16px 40px;
+  pointer-events:none;opacity:0;
+  transition:opacity .25s;
+">
+  <div style="position:absolute;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px)" onclick="closeBrandModal()"></div>
+  <div id="brandCard" style="
+    position:relative;z-index:1;
+    background:#161B27;border:1px solid rgba(255,255,255,0.1);
+    border-radius:24px;padding:24px;width:100%;max-width:360px;
+    transform:translateY(30px);transition:transform .3s cubic-bezier(.32,.72,0,1);
+    box-shadow:0 24px 64px rgba(0,0,0,.6);
+  ">
+    <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px">
+      <div id="brandModalIcon" style="width:48px;height:48px;border-radius:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0"></div>
+      <div>
+        <div id="brandModalName" style="font-size:17px;font-weight:800;letter-spacing:-.3px"></div>
+        <div id="brandModalAddr" style="font-size:11px;color:rgba(238,240,246,0.5);margin-top:2px"></div>
+      </div>
+    </div>
+    <div id="brandModalOffer" style="
+      background:rgba(240,180,41,0.08);border:1px solid rgba(240,180,41,0.2);
+      border-radius:14px;padding:14px 16px;margin-bottom:14px;
+      font-size:14px;font-weight:600;color:#EEF0F6;line-height:1.5;text-align:center;
+    "></div>
+    <div style="font-size:10px;color:rgba(238,240,246,0.35);text-align:center;margin-bottom:14px;letter-spacing:.3px">SHOW THIS SCREEN TO REDEEM · WAGA·WAGA WALK EXCLUSIVE</div>
+    <div style="display:flex;gap:10px">
+      <button onclick="closeBrandModal()" style="
+        flex:1;padding:14px;border-radius:14px;
+        border:1px solid rgba(255,255,255,0.1);
+        background:transparent;color:rgba(238,240,246,0.6);
+        font-family:'Outfit',sans-serif;font-weight:600;font-size:14px;
+        cursor:pointer;-webkit-appearance:none;
+      ">Close</button>
+      <button onclick="navigateToCurrentDest()" style="
+        flex:2;padding:14px;border-radius:14px;border:none;
+        background:#F0B429;color:#1a1200;
+        font-family:'Outfit',sans-serif;font-weight:700;font-size:14px;
+        cursor:pointer;-webkit-appearance:none;
+        display:flex;align-items:center;justify-content:center;gap:8px;
+      "><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>Navigate</button>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>

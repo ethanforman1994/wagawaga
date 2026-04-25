@@ -1820,30 +1820,26 @@ async function startNavigation(dest){
     const distFt=Math.round(dist*3.28084);
     const distDisplay=distFt<1000?`${distFt} ft`:`${(distFt/5280).toFixed(1)} mi`;
 
-    // Show nav bar — small pill at bottom above the sheet, not blocking the map
+    // Small unobtrusive End Nav button in top right
     navCancelBtn=document.createElement('div');
     navCancelBtn.style.cssText=`
       position:fixed;
-      bottom:calc(var(--sb) + var(--sh) + 8px);
-      left:14px;right:14px;
-      background:rgba(17,21,32,0.95);
+      top:calc(var(--st) + 76px);
+      right:14px;
+      background:rgba(17,21,32,0.92);
       backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
-      border:1px solid rgba(239,68,68,0.35);
-      border-radius:14px;
-      padding:10px 14px;
+      border:1px solid rgba(239,68,68,0.4);
+      border-radius:12px;
+      padding:8px 14px;
       font-family:'Outfit',sans-serif;
-      font-size:12px;font-weight:600;
-      color:#fff;
+      font-size:12px;font-weight:700;
+      color:#f87171;
       cursor:pointer;z-index:40;
-      display:flex;align-items:center;gap:10px;
+      display:flex;align-items:center;gap:7px;
     `;
     navCancelBtn.innerHTML=`
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-      <div style="flex:1">
-        <div style="font-size:13px;font-weight:700;color:#fff">${dest.name}</div>
-        <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-top:1px">${distDisplay} · ${mins} min walk</div>
-      </div>
-      <div style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.3);border-radius:8px;padding:4px 10px;font-size:11px;font-weight:700;color:#f87171">End</div>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      End Nav
     `;
     navCancelBtn.onclick=clearNavigation;
     document.body.appendChild(navCancelBtn);

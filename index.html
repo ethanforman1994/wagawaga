@@ -1730,26 +1730,61 @@ function pushGL(){
     }});
 }
 
-// ── HTML emoji markers for landmarks (GL symbol layers can't render emoji) ──
+// ── HTML icon markers for branded landmarks ──────────────────
 const _lmMarkers={};
+
+const BRAND_STYLES={
+  '☕': {bg:'#1C1C1C', border:'#6F4E37', svg:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C8956C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>`},
+  '🟢': {bg:'#1E3932', border:'#00A862', svg:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00A862" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`},
+  '🍟': {bg:'#DA291C', border:'#FFC72C', svg:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFC72C" stroke-width="2.5" stroke-linecap="round"><text x="3" y="16" fill="#FFC72C" font-size="14" font-weight="900" font-family="Arial">M</text></svg>`},
+};
+
+// Fallback for McDonald's M since SVG text is unreliable
+function makeLmEl(d){
+  const el=document.createElement('div');
+  const style=d.emoji ? BRAND_STYLES[d.emoji] : null;
+
+  if(style){
+    el.style.cssText=`
+      width:26px;height:26px;border-radius:50%;
+      background:${style.bg};
+      border:2px solid ${style.border};
+      display:flex;align-items:center;justify-content:center;
+      box-shadow:0 2px 8px rgba(0,0,0,0.5);
+      cursor:pointer;flex-shrink:0;
+    `;
+    if(d.emoji==='🍟'){
+      // McDonald's M in text
+      const m=document.createElement('span');
+      m.style.cssText='color:#FFC72C;font-weight:900;font-size:14px;font-family:Arial,sans-serif;line-height:1;margin-top:1px';
+      m.textContent='M';
+      el.appendChild(m);
+    } else {
+      el.innerHTML=style.svg;
+    }
+  } else {
+    // Plain NYC landmark — small white dot (GL layer handles it)
+    return null;
+  }
+  return el;
+}
+
 function syncLandmarkMarkers(){
   if(!map) return;
   Object.values(DOTS).forEach(d=>{
-    if(d.type!=='landmark'||!d.emoji) return;
-    if(_lmMarkers[d.id]) return; // already added
-    const el=document.createElement('div');
-    el.style.cssText='font-size:18px;line-height:1;cursor:pointer;filter:drop-shadow(0 1px 4px rgba(0,0,0,0.6));user-select:none';
-    el.textContent=d.emoji;
-    el.title=d.label;
+    if(d.type!=='landmark') return;
+    if(_lmMarkers[d.id]) {
+      // Update opacity if eaten
+      const el=_lmMarkers[d.id].getElement();
+      if(el) el.style.opacity=S.eatenIds[d.id]?'0.2':'1';
+      return;
+    }
+    const el=makeLmEl(d);
+    if(!el) return; // no marker for plain landmarks (GL circle handles them)
     const m=new mapboxgl.Marker({element:el,anchor:'center'})
       .setLngLat([d.lng,d.lat])
       .addTo(map);
     _lmMarkers[d.id]=m;
-  });
-  // Hide eaten landmark markers
-  Object.entries(_lmMarkers).forEach(([id,m])=>{
-    const el=m.getElement();
-    if(el) el.style.opacity=S.eatenIds[id]?'0.2':'1';
   });
 }
 

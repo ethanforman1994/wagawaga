@@ -1075,7 +1075,7 @@ const LANDMARKS=[
   {name:"McDonald's",        lat:40.7576,  lng:-73.9819, pts:10, emoji:'🍟'},
   {name:"McDonald's",        lat:40.7562,  lng:-73.9777, pts:10, emoji:'🍟'},
   {name:"McDonald's",        lat:40.7432,  lng:-73.9839, pts:10, emoji:'🍟'},  // 401 Park Ave S (28th St)
-  {name:"McDonald's",        lat:40.7609,  lng:-73.9673, pts:10, emoji:'🍟'},
+  {name:"Friday at Formans",  lat:40.7392,  lng:-73.9946, pts:25, emoji:'🍺'},
 ];
 
 const FRIENDS_CFG=[];
@@ -1656,6 +1656,9 @@ function pushGL(){
       'circle-stroke-width':1.5,
       'circle-stroke-color':'#FCA5A5'
     }});
+
+  // Landmark dots (white+teal ring)
+  map.addLayer({id:'dots-lm',type:'circle',source:'dots',
     filter:['all',['==',['get','type'],'landmark'],['==',['get','eaten'],false]],
     paint:{
       'circle-radius':['interpolate',['linear'],['zoom'],13,7,16,11,19,15],
@@ -1698,6 +1701,16 @@ const BRAND_OFFERS={
       'Buy one Big Mac get one free — today only!',
       'Free McFlurry with any combo meal.',
       'Free medium drink upgrade with your order.',
+    ]
+  },
+  '🍺':{
+    name:'Friday at Formans',
+    color:'#E74C3C', bg:'#C0392B',
+    offers:[
+      'Show this screen for a free drink at the bar!',
+      'You earned a complimentary appetizer — show this to your server!',
+      'Happy hour extended just for you — show this screen!',
+      'Free dessert with any entrée tonight — Waga·Waga exclusive!',
     ]
   },
 };
@@ -1832,6 +1845,8 @@ function showBrandModal(d){
     icon.innerHTML=`<span style="color:${offer.color};font-weight:900;font-size:20px;font-family:Arial,sans-serif">M</span>`;
   } else if(d.emoji==='☕'){
     icon.innerHTML=`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${offer.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>`;
+  } else if(d.emoji==='🍺'){
+    icon.innerHTML=`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="11" width="15" height="11" rx="1"/><path d="M17 13h2a2 2 0 0 1 0 4h-2"/><path d="M5 11V7a7 7 0 0 1 14 0"/><line x1="9" y1="7" x2="9" y2="11"/></svg>`;
   } else {
     icon.innerHTML=`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${offer.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`;
   }
@@ -1862,9 +1877,12 @@ function navigateToCurrentDest(){
     emoji:_navCurrentDest.emoji
   });
 }
+
+const BRAND_STYLES={
   '☕': {bg:'#1C1C1C', border:'#6F4E37', svg:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#C8956C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>`},
   '🟢': {bg:'#1E3932', border:'#00A862', svg:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#00A862" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>`},
   '🍟': {bg:'#DA291C', border:'#FFC72C', svg:`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#FFC72C" stroke-width="2.5" stroke-linecap="round"><text x="3" y="16" fill="#FFC72C" font-size="14" font-weight="900" font-family="Arial">M</text></svg>`},
+  '🍺': {bg:'#C0392B', border:'#E74C3C', svg:`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="11" width="15" height="11" rx="1"/><path d="M17 13h2a2 2 0 0 1 0 4h-2"/><path d="M5 11V7a7 7 0 0 1 14 0"/><line x1="9" y1="7" x2="9" y2="11"/></svg>`},
 };
 
 // Fallback for McDonald's M since SVG text is unreliable

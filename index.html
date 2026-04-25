@@ -1559,6 +1559,17 @@ const WALKABLE_CLASSES = new Set([
 
 const SKIP_CLASSES = new Set(['motorway','ferry','aerialway','golf']);
 
+// Load landmarks independently of road tile scan — always works
+function loadLandmarks(centerLat, centerLng){
+  LANDMARKS.forEach((lm,i)=>{
+    if(hav(centerLat,centerLng,lm.lat,lm.lng)>10000) return;
+    const id=`lm_${i}`;
+    if(!DOTS[id]) DOTS[id]={id,lat:lm.lat,lng:lm.lng,type:'landmark',pts:lm.pts,label:lm.name,emoji:lm.emoji||null};
+  });
+  pushGL();
+  if(playerLat!==null) updateNearby(playerLat,playerLng);
+}
+
 function buildRoadDots(centerLat, centerLng, silent=false){
   lastScanLat=centerLat; lastScanLng=centerLng;
   if(!silent) document.getElementById('dotLoader').textContent='⬤ Scanning roads…';
@@ -1773,6 +1784,8 @@ function initMap(lat,lng){
       }catch(e){}
 
       if(features.length<5){
+        // Still no road tiles — but load landmarks immediately so they always show
+        loadLandmarks(lat,lng);
         setTimeout(doScan,2000);
         return;
       }
@@ -1781,7 +1794,7 @@ function initMap(lat,lng){
       updateTrail();
     }
     map.once('idle',()=>setTimeout(doScan,1000));
-    setTimeout(()=>{ if(!scanned){ scanned=true; buildRoadDots(lat,lng); updateTrail(); }},8000);
+    setTimeout(()=>{ if(!scanned){ scanned=true; loadLandmarks(lat,lng); buildRoadDots(lat,lng); updateTrail(); }},8000);
 
     updateUI();renderLB('day');renderTerr();renderCh();renderRecap();
   });
